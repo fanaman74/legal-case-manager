@@ -60,12 +60,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check pinned downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           status=0
           for name in $(jq -r 'to_entries[] | select(.value|type=="object") | .key' scripts/runtimes.json); do
             url=$(jq -r ".${name}.url" scripts/runtimes.json)
             want=$(jq -r ".${name}.sha256" scripts/runtimes.json | tr A-Z a-z)
-            curl -fsSL --retry 3 -o /tmp/dl "$url"
+            if ! curl -fsSL --retry 3 -o /tmp/dl "$url"; then
+              echo "::error::$name download failed: $url"; status=1
+              # For GitHub releases, list the latest tags and Windows assets so a valid pin can be chosen.
+              repo=$(echo "$url" | sed -n 's#https://github.com/\([^/]*/[^/]*\)/releases/.*#\1#p')
+              if [ -n "$repo" ]; then
+                curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$repo/releases?per_page=5" \
+                  | jq -r '.[] | .tag_name + ": " + ([.assets[].name | select(test("w64|windows"))] | join(", "))' || true
+              fi
+              continue
+            fi
             got=$(sha256sum /tmp/dl | cut -d' ' -f1)
             echo "$name $(stat -c %s /tmp/dl) bytes sha256=$got"
             if [ "$got" != "$want" ]; then echo "::error::$name hash mismatch: runtimes.json has '$want'"; status=1; fi

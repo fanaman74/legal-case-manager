@@ -86,7 +86,7 @@ func Derive(svc catalog.Service, info supervisor.Info, h *health.Result, now tim
 		out.State, out.Detail = Error, "Couldn't start"
 		out.Problem = &Problem{
 			What: svc.Name + " couldn't start.", Why: "Windows reported: " + firstLine(info.StartErr) + ".",
-			Next: "Try starting it again. If it fails again, download diagnostics and run install.ps1 again.",
+			Next:      "Try starting it again. If it fails again, download diagnostics and run install.ps1 again.",
 			FixAction: fix, FixLabel: fixLabel,
 		}
 		return out
@@ -142,9 +142,9 @@ func Derive(svc catalog.Service, info supervisor.Info, h *health.Result, now tim
 	default:
 		out.State, out.Detail = Error, "Unknown state"
 		out.Problem = &Problem{
-			What: svc.Name + " is in a state the launcher doesn't recognise.",
-			Why:  "Windows reported an unexpected service state.",
-			Next: "Restart it. If that doesn't help, restart the computer.",
+			What:      svc.Name + " is in a state the launcher doesn't recognise.",
+			Why:       "Windows reported an unexpected service state.",
+			Next:      "Restart it. If that doesn't help, restart the computer.",
 			FixAction: fix, FixLabel: fixLabel,
 		}
 	}
