@@ -1,0 +1,18 @@
+# Build output
+/dist/
+launcher/internal/web/dist/*
+!launcher/internal/web/dist/.gitkeep
+control-center/node_modules/
+*.exe
+
+# Local configuration and data (never commit)
+deploy/.env
+launcher.json
+data/
+certs/
+setup-code.txt
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
