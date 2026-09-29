@@ -111,6 +111,6 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          foreach ($f in @("C:\CaseFiles\launcher\launcher.log") + (Get-ChildItem C:\CaseFiles\logs -Recurse -Filter service.log).FullName) {
-            if (Test-Path $f) { Write-Host "===== $f"; Get-Content $f -Tail 80 }
+          foreach ($f in @("C:\CaseFiles\launcher\launcher.log") + @(Get-ChildItem C:\CaseFiles\logs -Recurse -Filter service.log -ErrorAction SilentlyContinue).FullName) {
+            if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 80 }
           }
