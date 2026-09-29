@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  launcher:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: launcher/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: control-center/package-lock.json
+      - name: Control Center
+        working-directory: control-center
+        run: npm ci && npm run build && npm test
+      - name: gofmt
+        working-directory: launcher
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Vet (Linux and Windows)
+        working-directory: launcher
+        run: go vet ./... && GOOS=windows go vet ./...
+      - name: Test
+        working-directory: launcher
+        run: go test -race ./...
+      - name: Build Windows launcher
+        working-directory: launcher
+        run: GOOS=windows GOARCH=amd64 go build -o /tmp/launcher.exe ./cmd/launcher
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - working-directory: services/api
+        run: pip install -r requirements-dev.txt && pytest -q
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose file
+        run: |
+          printf 'CFM_DATA_DIR=/tmp/d\nCFM_CERTS_DIR=/tmp/c\n' > deploy/.env
+          docker compose -f deploy/compose.yaml config -q
+      - name: Build images
+        run: docker compose -f deploy/compose.yaml build
