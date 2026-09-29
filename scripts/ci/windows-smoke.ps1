@@ -91,6 +91,9 @@ do {
 } while (($states | Where-Object { $_ -ne "Running" }) -and (Get-Date) -lt $deadline)
 Check (-not ($states | Where-Object { $_ -ne "Running" })) "services started again after a launcher restart ($($states -join ', '))"
 
+# Ollama's cloud models stay off, so case text never leaves this computer.
+Check (Select-String -Quiet -SimpleMatch "Ollama cloud disabled: true" "$root\logs\models\service.log") "Ollama cloud models are turned off"
+
 # A crash is restarted automatically.
 Start-Sleep -Seconds 5
 $before = Get-Content -Raw "$root\logs\worker\status.json" | ConvertFrom-Json

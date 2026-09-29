@@ -119,8 +119,11 @@ func Specs(cfg config.Config, version string) map[catalog.ServiceID]Spec {
 				"OLLAMA_HOST=127.0.0.1:"+strconv.Itoa(cfg.ModelsPort),
 				"OLLAMA_MODELS="+ModelsDir(cfg),
 				"OLLAMA_NOPRUNE=1",
-				// Only the app on this computer may call the models.
+				// Empty keeps Ollama's default: only pages on this computer
+				// may call it from a browser.
 				"OLLAMA_ORIGINS=",
+				// Never send prompts or case text to Ollama's cloud models.
+				"OLLAMA_NO_CLOUD=1",
 			),
 			LogFile: LogFile(cfg, catalog.Models),
 		},

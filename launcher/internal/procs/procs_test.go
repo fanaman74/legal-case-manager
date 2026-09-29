@@ -180,6 +180,9 @@ func TestSpecsAreFixed(t *testing.T) {
 		}
 	}
 	m := specs[catalog.Models]
+	if !has(m.Env, "OLLAMA_NO_CLOUD=1") {
+		t.Error("models service must have Ollama's cloud models turned off")
+	}
 	if !has(m.Env, "OLLAMA_HOST=127.0.0.1:11434") {
 		t.Errorf("models must listen on loopback only: %v", m.Env)
 	}
