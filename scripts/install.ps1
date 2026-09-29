@@ -192,21 +192,17 @@ Invoke-Checked "the app's Python packages couldn't be installed." "Check the int
     --require-hashes --only-binary=:all: -r (Join-Path $appDir "requirements-windows.txt")
 }
 
-# Tesseract OCR: its official installer, run silently into the app folder.
-$tessDir = Join-Path $runtime "tesseract"
-if (-not (Test-Installed "tesseract") -or -not (Test-Path (Join-Path $tessDir "tesseract.exe"))) {
+# Tesseract OCR: its official installer, run silently. The installer ignores
+# /D and always installs to Program Files\Tesseract-OCR, which every account
+# (including the app's service accounts) can read but not change.
+$tessExe = Join-Path $env:ProgramFiles "Tesseract-OCR\tesseract.exe"
+if (-not (Test-Installed "tesseract") -or -not (Test-Path $tessExe)) {
   $setup = Get-Verified "tesseract"
-  # /D must be last and unquoted (NSIS rule).
-  $p = Start-Process -FilePath $setup -ArgumentList "/S", "/D=$tessDir" -Wait -PassThru
-  # Some NSIS installers hand the work to a copy of themselves and return
-  # early, so give the files a moment to appear.
+  $p = Start-Process -FilePath $setup -ArgumentList "/S" -Wait -PassThru
+  # The installer can hand the work to a copy of itself and return early.
   $deadline = (Get-Date).AddMinutes(3)
-  while (-not (Test-Path (Join-Path $tessDir "tesseract.exe")) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
-  if ($p.ExitCode -ne 0 -or -not (Test-Path (Join-Path $tessDir "tesseract.exe"))) {
-    $found = @("$env:ProgramFiles\Tesseract-OCR", "${env:ProgramFiles(x86)}\Tesseract-OCR", $tessDir) |
-      Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -Filter tesseract.exe -Recurse -ErrorAction SilentlyContinue } |
-      Select-Object -First 3 -ExpandProperty FullName
-    if ($found) { Write-Host "  Found tesseract.exe at: $($found -join ', ')" }
+  while (-not (Test-Path $tessExe) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+  if ($p.ExitCode -ne 0 -or -not (Test-Path $tessExe)) {
     Fail "Tesseract OCR didn't install (code $($p.ExitCode))." "Run install.ps1 again. If antivirus software asked about it, allow it."
   }
   Set-Installed "tesseract"
@@ -231,6 +227,7 @@ $config = [ordered]@{
   certs_dir   = $certsDir
   app_dir     = $appDir
   runtime_dir = $runtime
+  tesseract   = $tessExe
   log_dir     = $logDir
   supervisor  = "windows"
   port        = $ControlCenterPort

@@ -37,7 +37,8 @@ Run `install.ps1` again at any time to repair or upgrade. It keeps your cases, A
 | Path | Contents | Who can read it |
 |---|---|---|
 | `C:\CaseFiles\launcher.exe` | The launcher and the service host | Administrators, SYSTEM and the three app services |
-| `C:\CaseFiles\app\`, `runtime\` | The web app, Python, Tesseract, Ollama | Administrators, SYSTEM and the three app services |
+| `C:\CaseFiles\app\`, `runtime\` | The web app, Python and Ollama | Administrators, SYSTEM and the three app services |
+| `C:\Program Files\Tesseract-OCR\` | Tesseract OCR (its installer always uses this folder) | Everyone can read; only administrators can change it |
 | `C:\CaseFiles\launcher\` | Admin password hash, audit log, launcher settings and log | Administrators and SYSTEM only |
 | `C:\CaseFiles\certs\` | Local certificate authority and the HTTPS certificate | Administrators and SYSTEM. The web app can read only its own certificate and key. |
 | `C:\CaseFiles\data\` | Case files, database, search index, AI models | Administrators, SYSTEM, the web app and the worker. The models service can only reach `data\models`. |
@@ -66,7 +67,7 @@ The launcher starts with Windows, and it starts the services that were running b
 
 ## Uninstall
 
-Run `C:\CaseFiles\uninstall.ps1` as administrator. It removes the services and firewall rules and leaves your case data, audit log and certificates in place.
+Run `C:\CaseFiles\uninstall.ps1` as administrator. It removes the services and firewall rules and leaves your case data, audit log and certificates in place. Tesseract OCR stays installed; remove it from *Settings › Apps* if nothing else uses it.
 
 ## Backup
 
