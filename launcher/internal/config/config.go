@@ -11,27 +11,39 @@ import (
 	"runtime"
 )
 
-// Config is launcher.json.
+// Config is launcher.json. The installer writes it; it holds no secrets.
 type Config struct {
-	// DataDir holds case data. It is mounted into the app containers, so
-	// nothing belonging to the launcher may live inside it.
+	// DataDir holds case data. The app services can write to it, so nothing
+	// belonging to the launcher may live inside it.
 	DataDir string `json:"data_dir"`
 	// StateDir holds the launcher's credentials, audit log and settings.
-	// It is never mounted into a container.
+	// Only Administrators and SYSTEM can read it; the app services can't.
 	StateDir string `json:"state_dir"`
-	// CertsDir holds the local CA and server certificate. Only the server
-	// certificate and key are mounted into the web app, read-only.
+	// CertsDir holds the local CA and server certificate. The web app can
+	// read the server certificate and key only, never the CA key.
 	CertsDir string `json:"certs_dir"`
-	// ComposeFile is the absolute path to deploy/compose.yaml.
-	ComposeFile string `json:"compose_file"`
-	// Project is the compose project name.
-	Project string `json:"project"`
+	// AppDir holds the web app and worker source (services/api).
+	AppDir string `json:"app_dir"`
+	// RuntimeDir holds Python (with the app's packages), Tesseract and
+	// Ollama, installed by the installer.
+	RuntimeDir string `json:"runtime_dir"`
+	// LogDir holds one log file per service.
+	LogDir string `json:"log_dir"`
+	// Python, Tesseract and Ollama override the executables inside
+	// RuntimeDir (used for development on Linux and macOS).
+	Python    string `json:"python"`
+	Tesseract string `json:"tesseract"`
+	Ollama    string `json:"ollama"`
+	// Supervisor chooses how services are run: "windows" (a Windows service
+	// per app process, the default on Windows) or "direct" (child processes
+	// of the launcher, the default elsewhere).
+	Supervisor string `json:"supervisor"`
 	// Port is the Control Center's HTTPS port.
 	Port int `json:"port"`
 	// AppPort is the web app's HTTPS port on the LAN.
 	AppPort int `json:"app_port"`
-	// Docker is the docker CLI path; empty means look it up on PATH.
-	Docker string `json:"docker"`
+	// ModelsPort is the loopback port the local AI models listen on.
+	ModelsPort int `json:"models_port"`
 	// EmbeddingModel is the model the wizard checks for.
 	EmbeddingModel string `json:"embedding_model"`
 	// Hostname is an extra DNS name for the certificate, e.g. casefiles.local.
@@ -68,11 +80,40 @@ func Load(path string) (Config, error) {
 	if c.CertsDir == "" {
 		c.CertsDir = filepath.Join(base, "certs")
 	}
-	if c.ComposeFile == "" {
-		c.ComposeFile = filepath.Join(base, "deploy", "compose.yaml")
+	if c.AppDir == "" {
+		c.AppDir = filepath.Join(base, "app")
 	}
-	if c.Project == "" {
-		c.Project = "casefiles"
+	if c.RuntimeDir == "" {
+		c.RuntimeDir = filepath.Join(base, "runtime")
+	}
+	if c.LogDir == "" {
+		c.LogDir = filepath.Join(base, "logs")
+	}
+	exe := ""
+	if runtime.GOOS == "windows" {
+		exe = ".exe"
+	}
+	if c.Python == "" {
+		if runtime.GOOS == "windows" {
+			c.Python = filepath.Join(c.RuntimeDir, "python", "python.exe")
+		} else {
+			c.Python = filepath.Join(c.RuntimeDir, "venv", "bin", "python")
+		}
+	}
+	if c.Tesseract == "" {
+		c.Tesseract = filepath.Join(c.RuntimeDir, "tesseract", "tesseract"+exe)
+	}
+	if c.Ollama == "" {
+		c.Ollama = filepath.Join(c.RuntimeDir, "ollama", "ollama"+exe)
+	}
+	if c.Supervisor == "" {
+		c.Supervisor = "direct"
+		if runtime.GOOS == "windows" {
+			c.Supervisor = "windows"
+		}
+	}
+	if c.ModelsPort == 0 {
+		c.ModelsPort = 11434
 	}
 	if c.Port == 0 {
 		c.Port = 8443
@@ -89,7 +130,9 @@ func Load(path string) (Config, error) {
 	c.DataDir, _ = filepath.Abs(c.DataDir)
 	c.StateDir, _ = filepath.Abs(c.StateDir)
 	c.CertsDir, _ = filepath.Abs(c.CertsDir)
-	c.ComposeFile, _ = filepath.Abs(c.ComposeFile)
+	for _, p := range []*string{&c.AppDir, &c.RuntimeDir, &c.LogDir, &c.Python, &c.Tesseract, &c.Ollama} {
+		*p, _ = filepath.Abs(*p)
+	}
 	return c, nil
 }
 
@@ -102,6 +145,9 @@ func (c Config) CertDir() string { return c.CertsDir }
 // State is what the Admin can change from the browser.
 type State struct {
 	LANEnabled bool `json:"lan_enabled"`
+	// Wanted lists the services the Admin last started. The launcher starts
+	// them again when the computer restarts, even if nobody signs in.
+	Wanted []string `json:"wanted,omitempty"`
 }
 
 func (c Config) statePath() string { return filepath.Join(c.LauncherDir(), "state.json") }

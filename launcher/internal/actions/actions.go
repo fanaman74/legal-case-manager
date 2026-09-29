@@ -1,6 +1,6 @@
 // Package actions parses and validates control requests against the
 // compiled-in allow-list. Anything that is not exactly an allow-listed action
-// with allow-listed parameters is rejected before it reaches Docker.
+// with allow-listed parameters is rejected before anything runs.
 package actions
 
 import (

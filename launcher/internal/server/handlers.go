@@ -23,8 +23,11 @@ import (
 	"github.com/fanaman74/legal-case-manager/launcher/internal/audit"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/auth"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/config"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/netguard"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/procs"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/redact"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/status"
 )
 
 const (
@@ -379,9 +382,8 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"message": "Certificate renewed. Restart the web app so it picks up the new certificate."})
 		return
 	case catalog.SetLANBinding:
-		st := s.cfg.LoadState()
-		st.LANEnabled = *req.Enabled
-		if err := s.cfg.SaveState(st); err != nil {
+		st, err := s.updateState(func(st *config.State) { st.LANEnabled = *req.Enabled })
+		if err != nil {
 			_ = s.record(r, sess.User, string(req.Action), req.Target(), audit.Failed, err.Error())
 			writeError(w, http.StatusInternalServerError, "The setting couldn't be saved. Check that the data folder isn't read-only.")
 			return
@@ -397,15 +399,25 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args, ok := s.project.Args(req)
-	if !ok {
+	var ids []catalog.ServiceID
+	label := "All services"
+	var svcID catalog.ServiceID
+	switch req.Action {
+	case catalog.StackStartAll:
+		for _, svc := range startOrder() {
+			ids = append(ids, svc.ID)
+		}
+	case catalog.StackStopAll:
+		order := startOrder()
+		for i := len(order) - 1; i >= 0; i-- {
+			ids = append(ids, order[i].ID)
+		}
+	case catalog.ServiceStart, catalog.ServiceStop, catalog.ServiceRestart:
+		svcID, label = req.Service.ID, req.Service.Name
+		ids = []catalog.ServiceID{svcID}
+	default:
 		writeError(w, http.StatusBadRequest, "That action isn't available.")
 		return
-	}
-	var svcID catalog.ServiceID
-	label := "All services"
-	if req.Service != nil {
-		svcID, label = req.Service.ID, req.Service.Name
 	}
 	op, err := s.ops.start(req.Action, svcID, sess.User, describe(req.Action, label, true), s.now())
 	var busy errBusy
@@ -416,9 +428,22 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 	ip := netguard.ClientIP(r).String()
 	started := *op // copy before the goroutine can change it
-	go s.runCompose(op, req, args, sess.User, ip, label)
+	go s.runServices(s.bgCtx, op, req.Action, ids, sess.User, ip, label)
 	s.poller.refresh(r.Context())
 	writeJSON(w, http.StatusAccepted, started)
+}
+
+// startOrder is the order services start in: the models and web app first,
+// so the worker finds them when it starts.
+func startOrder() []catalog.Service {
+	order := []catalog.ServiceID{catalog.Models, catalog.API, catalog.Worker}
+	out := make([]catalog.Service, 0, len(order))
+	for _, id := range order {
+		if svc, ok := catalog.Lookup(string(id)); ok {
+			out = append(out, svc)
+		}
+	}
+	return out
 }
 
 func describe(a catalog.ActionName, label string, running bool) string {
@@ -436,55 +461,128 @@ func describe(a catalog.ActionName, label string, running bool) string {
 	return v[1]
 }
 
-func (s *Server) runCompose(op *Operation, req actions.Request, args []string, actor, ip, label string) {
-	ctx, cancel := context.WithTimeout(s.bgCtx, 15*time.Minute)
+// ReadyTimeout is how long a start waits for services to pass health checks.
+var ReadyTimeout = 3 * time.Minute
+
+// runServices performs a start, stop or restart and records the outcome.
+func (s *Server) runServices(ctx context.Context, op *Operation, action catalog.ActionName, ids []catalog.ServiceID, actor, ip, label string) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	out, err := s.runner.Run(ctx, args)
-	out = redact.String(out)
-	entry := audit.Entry{Actor: actor, IP: ip, Action: string(req.Action), Target: req.Target()}
-	if err != nil {
-		s.log.Error("compose action failed", "action", req.Action, "target", req.Target(), "err", err, "output", out)
-		entry.Outcome, entry.Detail = audit.Failed, lastLine(out)
-		_ = s.audit.Append(entry)
-		s.ops.finish(op, false, composeFailure(req, label, out), s.now())
-	} else {
-		entry.Outcome = audit.Succeeded
-		_ = s.audit.Append(entry)
-		s.ops.finish(op, true, describe(req.Action, label, false), s.now())
+	target := ""
+	if len(ids) == 1 && (action == catalog.ServiceStart || action == catalog.ServiceStop || action == catalog.ServiceRestart) {
+		target = string(ids[0])
 	}
+	entry := audit.Entry{Actor: actor, IP: ip, Action: string(action), Target: target}
+	fail := func(msg string, err error) {
+		s.log.Error("service action failed", "action", action, "target", target, "err", err)
+		entry.Outcome, entry.Detail = audit.Failed, msg
+		_ = s.audit.Append(entry)
+		s.ops.finish(op, false, msg, s.now())
+		s.poller.refresh(s.bgCtx)
+	}
+
+	stopping := action == catalog.StackStopAll || action == catalog.ServiceStop || action == catalog.ServiceRestart
+	starting := action != catalog.StackStopAll && action != catalog.ServiceStop
+
+	// Remember what should run after a restart of the computer.
+	_, _ = s.updateState(func(st *config.State) {
+		set := map[string]bool{}
+		for _, id := range st.Wanted {
+			set[id] = true
+		}
+		for _, id := range ids {
+			set[string(id)] = starting
+		}
+		st.Wanted = st.Wanted[:0]
+		for _, svc := range catalog.Services {
+			if set[string(svc.ID)] {
+				st.Wanted = append(st.Wanted, string(svc.ID))
+			}
+		}
+	})
+
+	if stopping {
+		for _, id := range ids {
+			if err := s.sup.Stop(ctx, id); err != nil {
+				fail(serviceName(id)+" didn't stop: "+plain(err)+" Try again, or restart the computer.", err)
+				return
+			}
+		}
+	}
+	if starting {
+		for _, id := range ids {
+			if err := s.sup.Start(ctx, id); err != nil {
+				fail(serviceName(id)+" didn't start: "+plain(err), err)
+				return
+			}
+			s.poller.refresh(s.bgCtx)
+		}
+		if msg, err := s.waitReady(ctx, ids); err != nil {
+			fail(msg, err)
+			return
+		}
+	}
+	entry.Outcome = audit.Succeeded
+	_ = s.audit.Append(entry)
+	s.ops.finish(op, true, describe(action, label, false), s.now())
 	s.poller.refresh(s.bgCtx)
 }
 
-func lastLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
-		s = s[i+1:]
+// waitReady waits until every service passes its health check, or one of
+// them fails, and returns a plain next step on failure.
+func (s *Server) waitReady(ctx context.Context, ids []catalog.ServiceID) (string, error) {
+	deadline := s.now().Add(ReadyTimeout)
+	for {
+		s.poller.refresh(ctx)
+		ready := true
+		for _, id := range ids {
+			st := s.poller.rawState(id)
+			switch st.State {
+			case status.Running:
+			case status.Error:
+				msg := st.Name + " didn't start properly."
+				if st.Problem != nil {
+					msg = st.Problem.What + " " + st.Problem.Next
+				}
+				return msg, errors.New(st.Detail)
+			default:
+				ready = false
+			}
+		}
+		if ready {
+			return "", nil
+		}
+		if s.now().After(deadline) {
+			var slow []string
+			for _, id := range ids {
+				if st := s.poller.rawState(id); st.State != status.Running {
+					slow = append(slow, st.Name)
+				}
+			}
+			return strings.Join(slow, ", ") + " didn't become ready within " + ReadyTimeout.String() + ". Open the log to see why, then restart it.", errors.New("timeout")
+		}
+		select {
+		case <-ctx.Done():
+			return "The action was interrupted because the launcher is stopping.", ctx.Err()
+		case <-time.After(time.Second):
+		}
 	}
-	if len(s) > 300 {
-		s = s[:300]
-	}
-	return s
 }
 
-// composeFailure turns compose output into a plain next step.
-func composeFailure(req actions.Request, label, out string) string {
-	low := strings.ToLower(out)
-	switch {
-	case strings.Contains(low, "cannot connect to the docker daemon"), strings.Contains(low, "docker_engine"), strings.Contains(low, "is the docker daemon running"):
-		return "Docker isn't running. Open Docker Desktop, wait until it shows Engine running, then try again."
-	case strings.Contains(low, "port is already allocated"), strings.Contains(low, "address already in use"), strings.Contains(low, "bind: "):
-		return "Another program is using the web app's port. Close it (often IIS, Skype or another web server), then try again."
-	case strings.Contains(low, "no space left"):
-		return "The disk is full. Free up space on the data drive, then try again."
-	case strings.Contains(low, "pull access denied"), strings.Contains(low, "manifest unknown"), strings.Contains(low, "no such image"):
-		return "A service image is missing. Run the installer again to download and build the images, then try again."
-	case strings.Contains(low, "unhealthy"), strings.Contains(low, "context deadline exceeded"):
-		return label + " started but didn't become healthy in time. Open its log to see why, then restart it."
+func serviceName(id catalog.ServiceID) string {
+	if svc, ok := catalog.Lookup(string(id)); ok {
+		return svc.Name
 	}
-	return label + " didn't " + map[catalog.ActionName]string{
-		catalog.StackStartAll: "start", catalog.ServiceStart: "start", catalog.ServiceRestart: "restart",
-		catalog.StackStopAll: "stop", catalog.ServiceStop: "stop",
-	}[req.Action] + ". Open the launcher log in diagnostics to see Docker's message, then try again."
+	return string(id)
+}
+
+// plain passes through messages written for people and hides system errors.
+func plain(err error) string {
+	msg := err.Error()
+	if strings.HasSuffix(msg, ".") && strings.ToUpper(msg[:1]) == msg[:1] {
+		return msg
+	}
+	return "Windows reported an error. Open the launcher log in diagnostics for details."
 }
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -512,27 +610,17 @@ type logLine struct {
 	Text   string `json:"text"`
 }
 
-func (s *Server) serviceLogs(ctx context.Context, svc catalog.Service, tail int) ([]logLine, error) {
-	list, err := s.engine.List(ctx)
+func (s *Server) serviceLogs(_ context.Context, svc catalog.Service, tail int) ([]logLine, error) {
+	raw, err := procs.Tail(procs.LogFile(s.cfg, svc.ID), tail)
 	if err != nil {
-		return nil, errors.New("Docker isn't running, so logs can't be read. Open Docker Desktop and try again.")
+		return nil, errors.New("The log couldn't be read. Try again in a moment.")
 	}
-	for _, ct := range list {
-		if ct.ComposeService() != svc.ComposeService {
-			continue
-		}
-		raw, err := s.engine.Logs(ctx, ct.ID, tail)
-		if err != nil {
-			return nil, errors.New("The log couldn't be read. Try again in a moment.")
-		}
-		out := make([]logLine, 0, len(raw))
-		for _, l := range raw {
-			text := redact.String(l.Text)
-			out = append(out, logLine{Time: l.Time, Stream: l.Stream, Level: levelOf(text, l.Stream), Text: text})
-		}
-		return out, nil
+	out := make([]logLine, 0, len(raw))
+	for _, l := range raw {
+		text := redact.String(l.Text) // already redacted on write; belt and braces
+		out = append(out, logLine{Time: l.Time, Stream: l.Stream, Level: levelOf(text, l.Stream), Text: text})
 	}
-	return []logLine{}, nil
+	return out, nil
 }
 
 func levelOf(text, stream string) string {
@@ -616,13 +704,13 @@ func (s *Server) serveDiagnostics(w http.ResponseWriter, r *http.Request, sess *
 	add("README.txt", []byte(diagnosticsReadme))
 	status, _ := json.MarshalIndent(map[string]any{
 		"generatedAt": snap.GeneratedAt, "launcherVersion": snap.Launcher,
-		"docker": snap.Docker, "services": snap.Services, "checks": snap.Checks,
+		"runtime": snap.Runtime, "services": snap.Services, "checks": snap.Checks,
 		"operations": snap.Operations, "lanControlCenter": snap.LAN.ControlCenterOnLAN,
 	}, "", "  ")
 	add("status.json", status)
 	cfg, _ := json.MarshalIndent(map[string]any{
-		"project": s.cfg.Project, "port": s.cfg.Port, "appPort": s.cfg.AppPort,
-		"embeddingModel": s.cfg.EmbeddingModel, "hostname": s.cfg.Hostname,
+		"supervisor": s.cfg.Supervisor, "port": s.cfg.Port, "appPort": s.cfg.AppPort,
+		"modelsPort": s.cfg.ModelsPort, "embeddingModel": s.cfg.EmbeddingModel, "hostname": s.cfg.Hostname,
 	}, "", "  ")
 	add("config.json", cfg)
 	for _, svc := range catalog.Services {

@@ -1,22 +1,45 @@
 """Web app / API. Phase 1 only exposes health endpoints and a holding page;
 accounts, cases and files arrive in phase 2."""
 
-import os
+import ipaddress
+import sqlite3
 import tempfile
 
-import redis
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from . import settings
 
 cfg = settings.load()
 app = FastAPI(title="Case File Manager", version=cfg.version, docs_url=None, redoc_url=None, openapi_url=None)
 
+# Locally the app listens on every interface so people on the office network
+# can reach it. Windows Firewall only opens the port on Private networks; this
+# check is the second lock: anyone outside the local network is refused, even
+# if the firewall rule is changed.
+_LOCAL_NETS = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "fe80::/10")]
+
+
+def is_local_client(host: str | None) -> bool:
+    try:
+        ip = ipaddress.ip_address(host or "")
+    except ValueError:
+        return False
+    if getattr(ip, "ipv4_mapped", None):
+        ip = ip.ipv4_mapped
+    return ip.is_loopback or any(ip in n for n in _LOCAL_NETS)
+
+
+@app.middleware("http")
+async def local_network_only(request: Request, call_next):
+    if not cfg.is_cloud and not is_local_client(request.client.host if request.client else None):
+        return PlainTextResponse("Case File Manager is only available on the office network. Connect to it, or to the office VPN, and try again.", status_code=403)
+    return await call_next(request)
+
 
 @app.get("/health")
 def health() -> dict:
-    """Liveness: the process is up. Used by Docker, the launcher and Railway."""
+    """Liveness: the process is up. Used by the launcher and Railway."""
     return {"status": "ok", "version": cfg.version}
 
 
@@ -30,17 +53,20 @@ def _data_dir_writable() -> bool:
         return False
 
 
-def _queue_reachable() -> bool:
+def _sqlite_search_available() -> bool:
+    """Keyword search and the job queue both need SQLite with FTS5."""
     try:
-        return bool(redis.Redis.from_url(cfg.redis_url, socket_timeout=2).ping())
-    except redis.RedisError:
+        with sqlite3.connect(":memory:") as db:
+            db.execute("CREATE VIRTUAL TABLE t USING fts5(body)")
+        return True
+    except sqlite3.Error:
         return False
 
 
 @app.get("/ready")
 def ready() -> JSONResponse:
-    """Readiness: the app can do real work (data folder and job queue)."""
-    checks = {"data_dir": _data_dir_writable(), "queue": _queue_reachable()}
+    """Readiness: the app can do real work (data folder and SQLite search)."""
+    checks = {"data_dir": _data_dir_writable(), "sqlite_fts5": _sqlite_search_available()}
     ok = all(checks.values())
     return JSONResponse({"status": "ok" if ok else "not_ready", "checks": checks}, status_code=200 if ok else 503)
 

@@ -4,30 +4,26 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/checks"
-	"github.com/fanaman74/legal-case-manager/launcher/internal/docker"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/health"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/netguard"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/procs"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/status"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/supervisor"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/sysinfo"
 )
 
-// Engine is the read-only Docker API the poller needs; tests supply a fake.
-type Engine interface {
-	Version(ctx context.Context) (docker.Version, error)
-	List(ctx context.Context) ([]docker.Container, error)
-	Inspect(ctx context.Context, id string) (docker.Inspect, error)
-	Stats(ctx context.Context, id string) (docker.Usage, error)
-	Logs(ctx context.Context, id string, tail int) ([]docker.LogLine, error)
-}
-
-// DockerState is the engine's reachability.
-type DockerState struct {
-	OK      bool            `json:"ok"`
-	Version string          `json:"version,omitempty"`
+// RuntimeState says whether services can be run at all.
+type RuntimeState struct {
+	OK bool `json:"ok"`
+	// Name says how services are run ("Windows services").
+	Name    string          `json:"name"`
 	Problem *status.Problem `json:"problem,omitempty"`
 }
 
@@ -43,7 +39,7 @@ type LAN struct {
 type Snapshot struct {
 	GeneratedAt time.Time        `json:"generatedAt"`
 	Launcher    string           `json:"launcherVersion"`
-	Docker      DockerState      `json:"docker"`
+	Runtime     RuntimeState     `json:"runtime"`
 	Services    []status.Service `json:"services"`
 	Checks      []checks.Check   `json:"checks"`
 	LAN         LAN              `json:"lan"`
@@ -57,23 +53,34 @@ type poller struct {
 	mu sync.RWMutex
 	// latest is replaced wholesale; readers never see partial updates.
 	latest Snapshot
-	// usage is refreshed less often because each sample takes ~1s.
-	usage     map[catalog.ServiceID]docker.Usage
-	usageAt   time.Time
-	restarts  map[catalog.ServiceID]int
-	autoAt    map[catalog.ServiceID]time.Time
+	// raw is each service's state before the "action in progress" overlay,
+	// so actions can wait for a real result.
+	raw       map[catalog.ServiceID]status.Service
+	sampler   *sysinfo.Sampler
 	checksAt  time.Time
 	checkList []checks.Check
+	tools     toolResults
 	subs      map[chan Snapshot]struct{}
+}
+
+// toolResults caches the slower checks that run a program.
+type toolResults struct {
+	running   bool
+	at        time.Time
+	python    string
+	pythonErr error
+	ocr       string
+	ocrErr    error
+	pst       string
+	pstErr    error
 }
 
 func newPoller(s *Server) *poller {
 	return &poller{
-		s:        s,
-		usage:    map[catalog.ServiceID]docker.Usage{},
-		restarts: map[catalog.ServiceID]int{},
-		autoAt:   map[catalog.ServiceID]time.Time{},
-		subs:     map[chan Snapshot]struct{}{},
+		s:       s,
+		raw:     map[catalog.ServiceID]status.Service{},
+		sampler: sysinfo.NewSampler(),
+		subs:    map[chan Snapshot]struct{}{},
 	}
 }
 
@@ -94,6 +101,7 @@ func (p *poller) run(ctx context.Context) {
 func (p *poller) invalidateChecks() {
 	p.mu.Lock()
 	p.checksAt = time.Time{}
+	p.tools.at = time.Time{}
 	p.mu.Unlock()
 }
 
@@ -101,6 +109,12 @@ func (p *poller) get() Snapshot {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.latest
+}
+
+func (p *poller) rawState(id catalog.ServiceID) status.Service {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.raw[id]
 }
 
 func (p *poller) subscribe() (chan Snapshot, func()) {
@@ -124,63 +138,66 @@ func (p *poller) refresh(ctx context.Context) {
 	now := s.now()
 	snap := Snapshot{GeneratedAt: now, Launcher: Version, HasAdmin: s.auth.HasAdmin()}
 
-	v, verr := s.engine.Version(ctx)
-	snap.Docker = DockerState{OK: verr == nil, Version: v.Version}
-	infos := map[catalog.ServiceID]*docker.Inspect{}
-	ids := map[catalog.ServiceID]string{}
-	if verr != nil {
-		pr := status.DockerDown
-		snap.Docker.Problem = &pr
-	} else if list, err := s.engine.List(ctx); err == nil {
-		for _, ct := range list {
-			svc, ok := catalog.ByComposeService(ct.ComposeService())
-			if !ok {
-				continue
-			}
-			info, err := s.engine.Inspect(ctx, ct.ID)
-			if err != nil {
-				continue
-			}
-			infos[svc.ID] = &info
-			ids[svc.ID] = ct.ID
-		}
+	readyErr := s.sup.Ready(ctx)
+	snap.Runtime = RuntimeState{OK: readyErr == nil, Name: s.sup.Name()}
+	if readyErr != nil {
+		pr := status.RuntimeProblem(readyErr.Error())
+		snap.Runtime.Problem = &pr
 	}
 
-	p.refreshUsage(ctx, ids, infos, now)
+	// Read every service and probe the running ones in parallel.
+	type result struct {
+		info supervisor.Info
+		h    *health.Result
+	}
+	results := make([]result, len(catalog.Services))
+	var wg sync.WaitGroup
+	for i, svc := range catalog.Services {
+		wg.Add(1)
+		go func(i int, id catalog.ServiceID) {
+			defer wg.Done()
+			info, err := s.sup.Info(ctx, id)
+			if err != nil {
+				info = supervisor.Info{Phase: supervisor.Stopped}
+			}
+			results[i].info = info
+			if info.Phase == supervisor.Running {
+				r := s.prober.Probe(ctx, id)
+				results[i].h = &r
+			}
+		}(i, svc.ID)
+	}
+	wg.Wait()
 
 	busy := s.ops.busyServices()
-	p.mu.Lock()
-	for _, svc := range catalog.Services {
-		st := status.Derive(svc, infos[svc.ID], now)
-		if verr != nil {
-			st.Detail = "Unknown until Docker is running"
+	raw := map[catalog.ServiceID]status.Service{}
+	live := map[int]bool{}
+	for i, svc := range catalog.Services {
+		st := status.Derive(svc, results[i].info, results[i].h, now)
+		if pid := results[i].info.PID; pid > 0 && results[i].info.Running {
+			live[pid] = true
+			if u, ok := p.sampler.Usage(pid); ok && st.State == status.Running {
+				st.Usage = &u
+			}
 		}
-		if u, ok := p.usage[svc.ID]; ok && st.State == status.Running {
-			u := u
-			st.Usage = &u
+		if readyErr != nil && st.State == status.Stopped {
+			st.Detail = "Can't start until the installation is repaired"
 		}
-		// Docker restarted the container on its own: say so.
-		if prev, seen := p.restarts[svc.ID]; seen && st.RestartCount > prev {
-			p.autoAt[svc.ID] = now
-		}
-		p.restarts[svc.ID] = st.RestartCount
-		if t, ok := p.autoAt[svc.ID]; ok {
-			t := t
-			st.AutoRestart = &t
-		}
+		raw[svc.ID] = st
 		if label, ok := busy[svc.ID]; ok && st.State != status.Error {
 			st.State, st.Detail = status.Starting, label
 		}
 		snap.Services = append(snap.Services, st)
 	}
-	p.mu.Unlock()
+	p.sampler.Forget(live)
 
-	snap.Checks = p.systemChecks(snap, verr, now)
+	snap.Checks = p.systemChecks(snap, readyErr, now)
 	snap.LAN = s.lanInfo()
 	snap.Operations = s.ops.list()
 	snap.Wizard = wizard(snap)
 
 	p.mu.Lock()
+	p.raw = raw
 	p.latest = snap
 	for ch := range p.subs {
 		select {
@@ -191,37 +208,33 @@ func (p *poller) refresh(ctx context.Context) {
 	p.mu.Unlock()
 }
 
-func (p *poller) refreshUsage(ctx context.Context, ids map[catalog.ServiceID]string, infos map[catalog.ServiceID]*docker.Inspect, now time.Time) {
-	p.mu.RLock()
-	fresh := now.Sub(p.usageAt) < 5*time.Second
-	p.mu.RUnlock()
-	if fresh {
-		return
-	}
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	next := map[catalog.ServiceID]docker.Usage{}
-	for id, cid := range ids {
-		if !infos[id].State.Running {
-			continue
-		}
-		wg.Add(1)
-		go func(id catalog.ServiceID, cid string) {
-			defer wg.Done()
-			if u, err := p.s.engine.Stats(ctx, cid); err == nil {
-				mu.Lock()
-				next[id] = u
-				mu.Unlock()
-			}
-		}(id, cid)
-	}
-	wg.Wait()
+// refreshTools re-runs the program-based checks at most once a minute, in the
+// background so a slow disk never delays the live status.
+func (p *poller) refreshTools(now time.Time) toolResults {
 	p.mu.Lock()
-	p.usage, p.usageAt = next, now
+	t := p.tools
+	stale := !t.running && now.Sub(t.at) > time.Minute
+	if stale {
+		p.tools.running = true
+	}
 	p.mu.Unlock()
+	if stale {
+		go func() {
+			cfg := p.s.cfg
+			var r toolResults
+			r.python, r.pythonErr = checks.Probe(cfg.Python, []string{"--version"}, cfg.AppDir)
+			r.ocr, r.ocrErr = checks.Probe(cfg.Tesseract, []string{"--version"}, filepath.Dir(cfg.Tesseract))
+			r.pst, r.pstErr = checks.Probe(cfg.Python, []string{"-m", "app.toolcheck", "pst"}, cfg.AppDir)
+			r.at = p.s.now()
+			p.mu.Lock()
+			p.tools = r
+			p.mu.Unlock()
+		}()
+	}
+	return t
 }
 
-func (p *poller) systemChecks(snap Snapshot, verr error, now time.Time) []checks.Check {
+func (p *poller) systemChecks(snap Snapshot, readyErr error, now time.Time) []checks.Check {
 	s := p.s
 	svc := func(id catalog.ServiceID) status.State {
 		for _, x := range snap.Services {
@@ -259,11 +272,22 @@ func (p *poller) systemChecks(snap Snapshot, verr error, now time.Time) []checks
 		p.checkList, p.checksAt = list, now
 		p.mu.Unlock()
 	}
-	byID["docker"] = checks.Docker(snap.Docker.Version, verr)
-	byID["model"] = checks.Model(s.cfg.DataDir, s.cfg.EmbeddingModel)
-	byID["ocr"] = checks.OCR(svc(catalog.OCR) == status.Running)
+	if t := p.refreshTools(now); !t.at.IsZero() {
+		byID["runtime"] = checks.Runtime(t.python, t.pythonErr, readyErr, s.sup.Name())
+		byID["ocr"] = checks.OCR(t.ocr, t.ocrErr)
+		byID["pst"] = checks.PST(t.pst, t.pstErr)
+	} else {
+		pending := func(id, label string) checks.Check {
+			return checks.Check{ID: id, Label: label, Level: checks.Pending, Detail: "Checking…"}
+		}
+		byID["runtime"], byID["ocr"], byID["pst"] = pending("runtime", "App runtime"), pending("ocr", "OCR"), pending("pst", "PST parser")
+		if readyErr != nil {
+			byID["runtime"] = checks.Runtime("", nil, readyErr, s.sup.Name())
+		}
+	}
+	byID["model"] = checks.Model(procs.ModelsDir(s.cfg), s.cfg.EmbeddingModel)
 
-	order := []string{"docker", "disk", "port", "cert", "model", "ocr", "database", "vectors", "audit"}
+	order := []string{"runtime", "disk", "port", "cert", "model", "ocr", "pst", "database", "vectors", "audit"}
 	out := make([]checks.Check, 0, len(order))
 	for _, id := range order {
 		if c, ok := byID[id]; ok {
@@ -322,15 +346,18 @@ func wizard(snap Snapshot) []WizardStep {
 
 	pre := WizardStep{N: 1, ID: "prerequisites", Title: "Check prerequisites"}
 	failed := 0
-	for _, id := range []string{"docker", "disk", "port"} {
+	for _, id := range []string{"runtime", "disk", "port"} {
 		if check(id) == checks.Fail {
 			failed++
 		}
 	}
-	if failed == 0 {
-		pre.State, pre.Detail = StepDone, "Docker is running, there is enough disk space, and the web app's port is free."
-	} else {
+	switch {
+	case failed > 0:
 		pre.State, pre.Detail = StepFailed, fmt.Sprintf("%d check(s) need attention.", failed)
+	case check("runtime") == checks.Pending:
+		pre.State, pre.Detail = StepInProgress, "Checking the installation."
+	default:
+		pre.State, pre.Detail = StepDone, "The app is installed, there is enough disk space, and the web app's port is free."
 	}
 
 	svc := WizardStep{N: 2, ID: "services", Title: "Start the services"}

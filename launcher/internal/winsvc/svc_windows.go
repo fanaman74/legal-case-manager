@@ -1,19 +1,25 @@
 //go:build windows
 
-// Package winsvc runs the launcher as a Windows service.
+// Package winsvc runs the launcher, and the hosts for each app process, as
+// Windows services.
 package winsvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"syscall"
 	"time"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
+
+	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
 )
 
-// Name is the Windows service name.
+// Name is the launcher's Windows service name.
 const Name = "CaseFileManagerLauncher"
 
 // IsService reports whether the process was started by the service manager.
@@ -57,13 +63,54 @@ func (h handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc
 	}
 }
 
-// Run hands control to the service manager.
-func Run(run func(ctx context.Context) error) error {
-	return svc.Run(Name, handler{run: run})
+// Run hands control to the service manager as the named service.
+func Run(name string, run func(ctx context.Context) error) error {
+	return svc.Run(name, handler{run: run})
 }
 
-// Install registers the service to start automatically at boot and to
-// restart if it crashes.
+var recovery = []mgr.RecoveryAction{
+	{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
+	{Type: mgr.ServiceRestart, Delay: 30 * time.Second},
+	{Type: mgr.ServiceRestart, Delay: 60 * time.Second},
+}
+
+// ensure creates the service, or updates it if it already exists, so running
+// the installer again repairs an installation.
+func ensure(m *mgr.Mgr, name, exe string, c mgr.Config, args ...string) error {
+	s, err := m.OpenService(name)
+	if err != nil {
+		s, err = m.CreateService(name, exe, c, args...)
+		if err != nil {
+			return fmt.Errorf("create %s: %w", name, err)
+		}
+	} else {
+		cur, err := s.Config()
+		if err != nil {
+			s.Close()
+			return err
+		}
+		cur.BinaryPathName = syscall.EscapeArg(exe)
+		for _, a := range args {
+			cur.BinaryPathName += " " + syscall.EscapeArg(a)
+		}
+		cur.DisplayName, cur.Description = c.DisplayName, c.Description
+		cur.StartType, cur.DelayedAutoStart = c.StartType, c.DelayedAutoStart
+		cur.ServiceStartName, cur.Password = c.ServiceStartName, c.Password
+		cur.SidType = c.SidType
+		if err := s.UpdateConfig(cur); err != nil {
+			s.Close()
+			return fmt.Errorf("update %s: %w", name, err)
+		}
+	}
+	defer s.Close()
+	return s.SetRecoveryActions(recovery, 24*60*60)
+}
+
+// Install registers the launcher (LocalSystem, starts at boot) and one host
+// service per app process. Each host runs under its own virtual account,
+// NT SERVICE\CaseFiles-<id>, which has no password, can't sign in, and gets
+// only the file permissions the installer grants it. The launcher starts
+// the hosts itself, so they are set to manual start.
 func Install(configPath string) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -74,38 +121,59 @@ func Install(configPath string) error {
 		return fmt.Errorf("connect to the service manager (run as Administrator): %w", err)
 	}
 	defer m.Disconnect()
-	if s, err := m.OpenService(Name); err == nil {
-		s.Close()
-		return fmt.Errorf("service %s is already installed", Name)
-	}
-	s, err := m.CreateService(Name, exe, mgr.Config{
+	if err := ensure(m, Name, exe, mgr.Config{
 		DisplayName:      "Case File Manager launcher",
 		Description:      "Serves the Control Center and starts the Case File Manager services.",
 		StartType:        mgr.StartAutomatic,
 		DelayedAutoStart: true,
-	}, "--config", configPath)
-	if err != nil {
+		ServiceStartName: "LocalSystem",
+	}, "--config", configPath); err != nil {
 		return err
 	}
-	defer s.Close()
-	return s.SetRecoveryActions([]mgr.RecoveryAction{
-		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 30 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 60 * time.Second},
-	}, 24*60*60)
+	for _, sv := range catalog.Services {
+		name := sv.WindowsName()
+		if err := ensure(m, name, exe, mgr.Config{
+			DisplayName:      "Case File Manager " + sv.Name,
+			Description:      sv.Purpose + " Started and stopped from the Control Center.",
+			StartType:        mgr.StartManual,
+			ServiceStartName: `NT SERVICE\` + name,
+			SidType:          windows.SERVICE_SID_TYPE_UNRESTRICTED,
+		}, "--config", configPath, "host", string(sv.ID)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// Uninstall removes the service.
+// Uninstall stops and removes every Case File Manager service.
 func Uninstall() error {
 	m, err := mgr.Connect()
 	if err != nil {
 		return err
 	}
 	defer m.Disconnect()
-	s, err := m.OpenService(Name)
-	if err != nil {
-		return fmt.Errorf("service %s is not installed", Name)
+	names := []string{Name}
+	for _, sv := range catalog.Services {
+		names = append(names, sv.WindowsName())
 	}
-	defer s.Close()
-	return s.Delete()
+	var errs []error
+	for _, name := range names {
+		s, err := m.OpenService(name)
+		if err != nil {
+			continue
+		}
+		if st, err := s.Control(svc.Stop); err == nil {
+			for i := 0; i < 60 && st.State != svc.Stopped; i++ {
+				time.Sleep(500 * time.Millisecond)
+				if st, err = s.Query(); err != nil {
+					break
+				}
+			}
+		}
+		if err := s.Delete(); err != nil {
+			errs = append(errs, fmt.Errorf("remove %s: %w", name, err))
+		}
+		s.Close()
+	}
+	return errors.Join(errs...)
 }

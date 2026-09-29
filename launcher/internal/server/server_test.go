@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,76 +18,98 @@ import (
 
 	"github.com/fanaman74/legal-case-manager/launcher/internal/audit"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/auth"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/config"
-	"github.com/fanaman74/legal-case-manager/launcher/internal/docker"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/health"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/procs"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/supervisor"
 )
 
-type fakeEngine struct {
+type fakeSupervisor struct {
 	mu       sync.Mutex
-	down     bool
-	restarts int
+	readyErr error
+	calls    []string
+	infos    map[catalog.ServiceID]supervisor.Info
 }
 
-func (f *fakeEngine) Version(context.Context) (docker.Version, error) {
+func newFakeSupervisor() *fakeSupervisor {
+	return &fakeSupervisor{infos: map[catalog.ServiceID]supervisor.Info{}}
+}
+
+func (f *fakeSupervisor) Name() string { return "Test services" }
+
+func (f *fakeSupervisor) Ready(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.down {
-		return docker.Version{}, docker.ErrUnavailable
+	return f.readyErr
+}
+
+func (f *fakeSupervisor) Start(_ context.Context, id catalog.ServiceID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "start:"+string(id))
+	started := time.Now().Add(-time.Hour) // past the start grace period
+	f.infos[id] = supervisor.Info{Phase: supervisor.Running, Status: procs.Status{Service: id, Running: true, PID: os.Getpid(), StartedAt: &started}}
+	return nil
+}
+
+func (f *fakeSupervisor) Stop(_ context.Context, id catalog.ServiceID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "stop:"+string(id))
+	f.infos[id] = supervisor.Info{Phase: supervisor.Stopped, Status: procs.Status{Service: id, LastExit: &procs.Exit{}}}
+	return nil
+}
+
+func (f *fakeSupervisor) Info(_ context.Context, id catalog.ServiceID) (supervisor.Info, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if in, ok := f.infos[id]; ok {
+		return in, nil
 	}
-	return docker.Version{Version: "29.0.0"}, nil
+	return supervisor.Info{Phase: supervisor.Stopped, Status: procs.Status{Service: id}}, nil
 }
 
-func (f *fakeEngine) List(context.Context) ([]docker.Container, error) {
-	return []docker.Container{
-		{ID: "c-api", Labels: map[string]string{"com.docker.compose.project": "casefiles", "com.docker.compose.service": "api"}},
-		// Not in the catalog: must be ignored.
-		{ID: "c-x", Labels: map[string]string{"com.docker.compose.project": "casefiles", "com.docker.compose.service": "rogue"}},
-	}, nil
-}
-
-func (f *fakeEngine) Inspect(_ context.Context, id string) (docker.Inspect, error) {
-	var i docker.Inspect
-	i.ID = id
-	i.State.Status, i.State.Running = "running", true
-	i.State.StartedAt = time.Now().Add(-time.Minute)
-	i.Config.Image = "casefiles-api:0.1.0"
-	f.mu.Lock()
-	i.RestartCount = f.restarts
-	f.mu.Unlock()
-	return i, nil
-}
-
-func (f *fakeEngine) Stats(context.Context, string) (docker.Usage, error) {
-	return docker.Usage{CPUPercent: 2.5, MemoryBytes: 100 << 20}, nil
-}
-
-func (f *fakeEngine) Logs(context.Context, string, int) ([]docker.LogLine, error) {
-	return []docker.LogLine{{Time: "t", Stream: "stdout", Text: "loaded key sk-abcdefghijklmnopqrstu"}}, nil
-}
-
-type fakeRunner struct {
-	mu    sync.Mutex
-	calls [][]string
-}
-
-func (f *fakeRunner) Run(_ context.Context, args []string) (string, error) {
+func (f *fakeSupervisor) set(id catalog.ServiceID, fn func(*supervisor.Info)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, args)
-	return "", nil
+	in := f.infos[id]
+	fn(&in)
+	f.infos[id] = in
 }
 
-func (f *fakeRunner) count() int {
+func (f *fakeSupervisor) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.calls)
+}
+
+func (f *fakeSupervisor) callList() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
+}
+
+type fakeProber struct {
+	mu        sync.Mutex
+	unhealthy map[catalog.ServiceID]bool
+}
+
+func (f *fakeProber) Probe(_ context.Context, id catalog.ServiceID) health.Result {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.unhealthy[id] {
+		return health.Result{Detail: "it isn't answering yet", At: time.Now()}
+	}
+	return health.Result{OK: true, Version: "0.2.0", At: time.Now()}
 }
 
 type harness struct {
 	t      *testing.T
 	srv    *Server
 	h      http.Handler
-	runner *fakeRunner
+	sup    *fakeSupervisor
+	prober *fakeProber
 	code   string
 	cfg    config.Config
 }
@@ -105,9 +128,9 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &fakeRunner{}
+	sup, prober := newFakeSupervisor(), &fakeProber{unhealthy: map[catalog.ServiceID]bool{}}
 	srv := New(Options{
-		Config: cfg, Auth: store, Audit: al, Engine: &fakeEngine{}, Runner: runner,
+		Config: cfg, Auth: store, Audit: al, Supervisor: sup, Prober: prober,
 		Web: fstest.MapFS{"index.html": {Data: []byte("<!doctype html>cc")}},
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
@@ -115,7 +138,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	srv.poller.refresh(context.Background())
-	return &harness{t: t, srv: srv, h: srv.Handler(), runner: runner, code: code, cfg: cfg}
+	return &harness{t: t, srv: srv, h: srv.Handler(), sup: sup, prober: prober, code: code, cfg: cfg}
 }
 
 type client struct {
@@ -178,12 +201,26 @@ func (h *harness) admin() *client {
 func (h *harness) waitRuns(n int) {
 	h.t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
-	for h.runner.count() < n && time.Now().Before(deadline) {
+	for h.sup.count() < n && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if got := h.runner.count(); got != n {
-		h.t.Fatalf("expected %d compose runs, got %d", n, got)
+	if got := h.sup.count(); got != n {
+		h.t.Fatalf("expected %d supervisor calls, got %d: %v", n, got, h.sup.callList())
 	}
+}
+
+// waitOp waits for the latest operation to finish and returns it.
+func (h *harness) waitOp() Operation {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if ops := h.srv.ops.list(); len(ops) > 0 && ops[0].State != OpRunning {
+			return ops[0]
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h.t.Fatal("operation didn't finish")
+	return Operation{}
 }
 
 func TestNetworkGuard(t *testing.T) {
@@ -214,7 +251,7 @@ func TestUnauthenticatedRequestsRefused(t *testing.T) {
 	if w := c.do("POST", "/api/actions", `{"action":"stack.start_all"}`); w.Code != http.StatusUnauthorized {
 		t.Errorf("POST action: %d", w.Code)
 	}
-	if h.runner.count() != 0 {
+	if h.sup.count() != 0 {
 		t.Fatal("nothing may run without a session")
 	}
 }
@@ -228,7 +265,8 @@ func TestSetupScopeIsLimited(t *testing.T) {
 	if w := c.do("POST", "/api/actions", `{"action":"stack.start_all"}`); w.Code != http.StatusAccepted {
 		t.Fatalf("start all during setup: %d %s", w.Code, w.Body)
 	}
-	h.waitRuns(1)
+	h.waitRuns(3)
+	h.waitOp()
 	for _, body := range []string{`{"action":"stack.stop_all"}`, `{"action":"service.stop","service":"api"}`, `{"action":"launcher.set_lan_binding","enabled":true}`, `{"action":"diagnostics.bundle"}`} {
 		if w := c.do("POST", "/api/actions", body); w.Code != http.StatusForbidden {
 			t.Errorf("%s during setup: %d", body, w.Code)
@@ -258,7 +296,7 @@ func TestCSRFAndOrigin(t *testing.T) {
 	if w := c.do("POST", "/api/session/login", `{"username":"fred","password":"x"}`, crossSite); w.Code != http.StatusForbidden {
 		t.Errorf("cross-site login: %d", w.Code)
 	}
-	if h.runner.count() != 0 {
+	if h.sup.count() != 0 {
 		t.Fatal("no action should have run")
 	}
 }
@@ -270,17 +308,18 @@ func TestAdminActionsRunAndAreAudited(t *testing.T) {
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("restart: %d %s", w.Code, w.Body)
 	}
-	h.waitRuns(1)
-	args := h.runner.calls[0]
-	if args[len(args)-1] != "worker" || args[len(args)-2] != "--force-recreate" {
-		t.Fatalf("unexpected args %q", args)
+	if op := h.waitOp(); op.State != OpSucceeded {
+		t.Fatalf("restart failed: %+v", op)
+	}
+	if got := strings.Join(h.sup.callList(), " "); got != "stop:worker start:worker" {
+		t.Fatalf("restart calls: %s", got)
 	}
 
 	if w := c.do("POST", "/api/actions", `{"action":"service.exec","service":"api","cmd":"sh"}`); w.Code != http.StatusBadRequest {
 		t.Fatalf("arbitrary action: %d", w.Code)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if h.runner.count() != 1 {
+	if h.sup.count() != 2 {
 		t.Fatal("rejected action must not run")
 	}
 
@@ -299,6 +338,73 @@ func TestAdminActionsRunAndAreAudited(t *testing.T) {
 	}
 }
 
+func TestStartAllOrderAndWantedState(t *testing.T) {
+	h := newHarness(t)
+	c := h.admin()
+	if w := c.do("POST", "/api/actions", `{"action":"stack.start_all"}`); w.Code != http.StatusAccepted {
+		t.Fatalf("start all: %d", w.Code)
+	}
+	if op := h.waitOp(); op.State != OpSucceeded || op.Message != "All services started." {
+		t.Fatalf("start all: %+v", op)
+	}
+	if got := strings.Join(h.sup.callList(), " "); got != "start:models start:api start:worker" {
+		t.Fatalf("start order: %s", got)
+	}
+	if got := strings.Join(h.cfg.LoadState().Wanted, ","); got != "api,worker,models" {
+		t.Fatalf("wanted after start all: %s", got)
+	}
+	c.do("POST", "/api/actions", `{"action":"service.stop","service":"worker"}`)
+	h.waitOp()
+	if got := strings.Join(h.cfg.LoadState().Wanted, ","); got != "api,models" {
+		t.Fatalf("wanted after stopping worker: %s", got)
+	}
+	c.do("POST", "/api/actions", `{"action":"stack.stop_all"}`)
+	h.waitOp()
+	if got := h.sup.callList(); strings.Join(got[len(got)-3:], " ") != "stop:worker stop:api stop:models" {
+		t.Fatalf("stop order: %v", got)
+	}
+	if len(h.cfg.LoadState().Wanted) != 0 {
+		t.Fatalf("wanted after stop all: %v", h.cfg.LoadState().Wanted)
+	}
+}
+
+func TestWantedServicesStartAfterRestart(t *testing.T) {
+	h := newHarness(t)
+	_ = h.cfg.SaveState(config.State{Wanted: []string{"worker", "api"}})
+	h.srv.startWanted(context.Background())
+	if got := strings.Join(h.sup.callList(), " "); got != "start:api start:worker" {
+		t.Fatalf("auto start: %s", got)
+	}
+	entries, _ := h.srv.audit.Recent(10)
+	var requested, succeeded bool
+	for _, e := range entries {
+		if e.Actor == "launcher" && e.Action == "stack.start_all" {
+			requested = requested || e.Outcome == audit.Requested
+			succeeded = succeeded || e.Outcome == audit.Succeeded
+		}
+	}
+	if !requested || !succeeded {
+		t.Fatalf("automatic start must be audited: %+v", entries)
+	}
+}
+
+func TestStartFailsWhenServiceUnhealthy(t *testing.T) {
+	h := newHarness(t)
+	c := h.admin()
+	h.prober.mu.Lock()
+	h.prober.unhealthy[catalog.Worker] = true
+	h.prober.mu.Unlock()
+	c.do("POST", "/api/actions", `{"action":"service.start","service":"worker"}`)
+	op := h.waitOp()
+	if op.State != OpFailed || !strings.Contains(op.Message, "not responding") {
+		t.Fatalf("unhealthy start should fail with a next step: %+v", op)
+	}
+	entries, _ := h.srv.audit.Recent(5)
+	if last := entries[0]; last.Action != "service.start" || last.Outcome != audit.Failed {
+		t.Fatalf("failure must be audited: %+v", last)
+	}
+}
+
 func TestActionRefusedWhenAuditUnwritable(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores permission bits")
@@ -311,7 +417,7 @@ func TestActionRefusedWhenAuditUnwritable(t *testing.T) {
 		t.Fatalf("expected refusal, got %d", w.Code)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if h.runner.count() != 0 {
+	if h.sup.count() != 0 {
 		t.Fatal("action ran without an audit record")
 	}
 }
@@ -319,6 +425,8 @@ func TestActionRefusedWhenAuditUnwritable(t *testing.T) {
 func TestStatusAndLogs(t *testing.T) {
 	h := newHarness(t)
 	c := h.admin()
+	_ = h.sup.Start(context.Background(), catalog.API)
+	h.srv.poller.refresh(context.Background())
 	w := c.do("GET", "/api/status", "")
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
@@ -327,11 +435,14 @@ func TestStatusAndLogs(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
 		t.Fatal(err)
 	}
-	if len(snap.Services) != 6 || !snap.Docker.OK {
+	if len(snap.Services) != len(catalog.Services) || !snap.Runtime.OK {
 		t.Fatalf("snapshot: %+v", snap)
 	}
-	if snap.Services[0].State != "running" || snap.Services[1].State != "stopped" {
-		t.Fatalf("states: %s %s", snap.Services[0].State, snap.Services[1].State)
+	if snap.Services[0].State != "running" || snap.Services[0].Version != "0.2.0" || snap.Services[1].State != "stopped" {
+		t.Fatalf("states: %+v", snap.Services)
+	}
+	if snap.Services[0].Usage == nil || snap.Services[0].Usage.MemoryBytes == 0 {
+		t.Errorf("running service should report memory: %+v", snap.Services[0].Usage)
 	}
 	if len(snap.Wizard) != 7 || snap.Wizard[2].State != StepDone {
 		t.Fatalf("wizard: %+v", snap.Wizard)
@@ -340,9 +451,17 @@ func TestStatusAndLogs(t *testing.T) {
 	if w := c.do("GET", "/api/logs?service=../../etc", ""); w.Code != http.StatusBadRequest {
 		t.Fatalf("unknown service logs: %d", w.Code)
 	}
+	_ = os.MkdirAll(procs.ServiceLogDir(h.cfg, catalog.API), 0o755)
+	lw, err := procs.OpenLog(procs.LogFile(h.cfg, catalog.API))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lw.Line("stdout", "loaded key sk-abcdefghijklmnopqrstu")
+	lw.Line("stderr", "Traceback: boom")
+	lw.Close()
 	w = c.do("GET", "/api/logs?service=api&tail=10", "")
-	if w.Code != 200 || strings.Contains(w.Body.String(), "sk-abcdefghijklmnopqrstu") {
-		t.Fatalf("logs must be redacted: %d %s", w.Code, w.Body)
+	if w.Code != 200 || strings.Contains(w.Body.String(), "sk-abcdefghijklmnopqrstu") || !strings.Contains(w.Body.String(), `"level":"error"`) {
+		t.Fatalf("logs must be redacted and levelled: %d %s", w.Code, w.Body)
 	}
 }
 
@@ -360,24 +479,23 @@ func TestLoginErrorsArePlain(t *testing.T) {
 	}
 }
 
-func TestAutoRestartReportedAndDockerDown(t *testing.T) {
+func TestAutoRestartAndBrokenInstall(t *testing.T) {
 	h := newHarness(t)
-	eng := h.srv.engine.(*fakeEngine)
-	eng.mu.Lock()
-	eng.restarts = 1
-	eng.mu.Unlock()
+	_ = h.sup.Start(context.Background(), catalog.API)
+	restarted := time.Now()
+	h.sup.set(catalog.API, func(in *supervisor.Info) { in.Restarts, in.LastRestartAt = 1, &restarted })
 	h.srv.poller.refresh(context.Background())
 	snap := h.srv.poller.get()
-	if snap.Services[0].AutoRestart == nil {
-		t.Fatal("a rising restart count must be reported as an automatic restart")
+	if snap.Services[0].AutoRestart == nil || snap.Services[0].RestartCount != 1 {
+		t.Fatal("an automatic restart must be reported")
 	}
 
-	eng.mu.Lock()
-	eng.down = true
-	eng.mu.Unlock()
+	h.sup.mu.Lock()
+	h.sup.readyErr = errors.New("The app services aren't registered with Windows. Run install.ps1 again as administrator.")
+	h.sup.mu.Unlock()
 	h.srv.poller.refresh(context.Background())
 	snap = h.srv.poller.get()
-	if snap.Docker.OK || snap.Docker.Problem == nil || snap.Wizard[0].State != StepFailed {
-		t.Fatalf("docker down not reported: %+v %+v", snap.Docker, snap.Wizard[0])
+	if snap.Runtime.OK || snap.Runtime.Problem == nil || snap.Wizard[0].State != StepFailed {
+		t.Fatalf("broken install not reported: %+v %+v", snap.Runtime, snap.Wizard[0])
 	}
 }

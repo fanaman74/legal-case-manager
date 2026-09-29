@@ -5,89 +5,87 @@ import (
 	"time"
 
 	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
-	"github.com/fanaman74/legal-case-manager/launcher/internal/docker"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/health"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/procs"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/supervisor"
 )
 
-func inspect(status, health string, exit int, oom bool) *docker.Inspect {
-	var i docker.Inspect
-	i.State.Status = status
-	i.State.Running = status == "running"
-	i.State.ExitCode = exit
-	i.State.OOMKilled = oom
-	i.State.StartedAt = time.Now().Add(-time.Hour)
-	i.Config.Image = "redis:7.4-alpine"
-	if health != "" {
-		i.State.Health = &struct {
-			Status string `json:"Status"`
-			Log    []struct {
-				End      time.Time `json:"End"`
-				ExitCode int       `json:"ExitCode"`
-				Output   string    `json:"Output"`
-			} `json:"Log"`
-		}{Status: health}
-	}
-	return &i
-}
-
 func TestDerive(t *testing.T) {
-	svc, _ := catalog.Lookup("queue")
+	svc, _ := catalog.Lookup("worker")
+	now := time.Now()
+	old := now.Add(-time.Hour)
+	fresh := now.Add(-5 * time.Second)
+	ok := &health.Result{OK: true, Version: "0.2.0", At: now}
+	bad := &health.Result{OK: false, Detail: "it last reported in 2m0s ago", At: now}
+	info := func(phase supervisor.Phase, f func(*procs.Status)) supervisor.Info {
+		st := procs.Status{Service: svc.ID}
+		if f != nil {
+			f(&st)
+		}
+		return supervisor.Info{Status: st, Phase: phase}
+	}
+	running := func(started time.Time) func(*procs.Status) {
+		return func(s *procs.Status) { s.Running, s.PID, s.StartedAt = true, 42, &started }
+	}
 	cases := []struct {
 		name    string
-		info    *docker.Inspect
+		info    supervisor.Info
+		h       *health.Result
 		want    State
 		problem bool
 		fix     bool
 	}{
-		{"missing", nil, Stopped, false, false},
-		{"running no healthcheck", inspect("running", "", 0, false), Running, false, false},
-		{"healthy", inspect("running", "healthy", 0, false), Running, false, false},
-		{"health starting", inspect("running", "starting", 0, false), Starting, false, false},
-		{"unhealthy", inspect("running", "unhealthy", 0, false), Error, true, true},
-		{"restarting", inspect("restarting", "", 1, false), Starting, false, false},
-		{"created", inspect("created", "", 0, false), Stopped, false, false},
-		{"clean exit", inspect("exited", "", 0, false), Stopped, false, false},
-		{"stopped by signal", inspect("exited", "", 143, false), Stopped, false, false},
-		{"crash", inspect("exited", "", 1, false), Error, true, true},
-		{"oom", inspect("exited", "", 137, true), Error, true, true},
-		{"dead", inspect("dead", "", 1, false), Error, true, true},
+		{"never started", info(supervisor.Stopped, nil), nil, Stopped, false, false},
+		{"stopped after running", info(supervisor.Stopped, func(s *procs.Status) { s.LastExit = &procs.Exit{Code: 1} }), nil, Stopped, false, false},
+		{"starting", info(supervisor.Starting, nil), nil, Starting, false, false},
+		{"stopping", info(supervisor.Stopping, nil), nil, Starting, false, false},
+		{"running healthy", info(supervisor.Running, running(old)), ok, Running, false, false},
+		{"running, grace period", info(supervisor.Running, running(fresh)), bad, Starting, false, false},
+		{"running, not responding", info(supervisor.Running, running(old)), bad, Error, true, true},
+		{"running, never probed", info(supervisor.Running, running(old)), nil, Error, true, true},
+		{"missing program", info(supervisor.Stopped, func(s *procs.Status) { s.Missing, s.GaveUp = true, true }), nil, Error, true, false},
+		{"start error", info(supervisor.Stopped, func(s *procs.Status) { s.GaveUp, s.StartErr = true, "access denied" }), nil, Error, true, true},
+		{"crash loop", info(supervisor.Stopped, func(s *procs.Status) { s.GaveUp, s.Restarts, s.LastExit = true, 4, &procs.Exit{Code: 3} }), nil, Error, true, true},
+		{"unknown phase", info("weird", nil), nil, Error, true, true},
 	}
 	for _, c := range cases {
-		got := Derive(svc, c.info, time.Now())
+		got := Derive(svc, c.info, c.h, now)
 		if got.State != c.want {
 			t.Errorf("%s: state %s want %s", c.name, got.State, c.want)
 		}
 		if (got.Problem != nil) != c.problem {
-			t.Errorf("%s: problem=%v", c.name, got.Problem)
+			t.Errorf("%s: problem=%+v", c.name, got.Problem)
 		}
 		if got.Problem != nil {
 			if got.Problem.What == "" || got.Problem.Why == "" || got.Problem.Next == "" {
 				t.Errorf("%s: problem must say what, why and next: %+v", c.name, got.Problem)
 			}
-			if c.fix && got.Problem.FixAction != catalog.ServiceRestart {
-				t.Errorf("%s: expected restart fix", c.name)
+			if c.fix != (got.Problem.FixAction == catalog.ServiceRestart) {
+				t.Errorf("%s: fix action %q", c.name, got.Problem.FixAction)
 			}
 		}
 	}
 }
 
-func TestVersion(t *testing.T) {
-	svc, _ := catalog.Lookup("queue")
-	i := inspect("running", "", 0, false)
-	if v := Derive(svc, i, time.Now()).Version; v != "7.4-alpine" {
-		t.Errorf("tag version: %s", v)
+func TestDeriveDetails(t *testing.T) {
+	svc, _ := catalog.Lookup("api")
+	now := time.Now()
+	started := now.Add(-time.Hour)
+	restarted := now.Add(-time.Minute)
+	got := Derive(svc, supervisor.Info{Phase: supervisor.Running, Status: procs.Status{
+		Running: true, StartedAt: &started, Restarts: 2, LastRestartAt: &restarted,
+	}}, &health.Result{OK: true, Version: "0.2.0", At: now}, now)
+	if got.Version != "0.2.0" || got.RestartCount != 2 || got.AutoRestart == nil || got.StartedAt == nil {
+		t.Errorf("details: %+v", got)
 	}
-	i.Config.Labels = map[string]string{"org.opencontainers.image.version": "24.04"}
-	if v := Derive(svc, i, time.Now()).Version; v != "7.4-alpine" {
-		t.Errorf("tag must win over a base image label: %s", v)
+	stopped := Derive(svc, supervisor.Info{Phase: supervisor.Stopped, Status: procs.Status{Restarts: 2, LastRestartAt: &restarted, LastExit: &procs.Exit{}}}, nil, now)
+	if stopped.AutoRestart != nil {
+		t.Error("a service the Admin stopped shouldn't still show the crash-restart note")
 	}
-	i.Config.Image = "casefiles-api"
-	i.Config.Labels = map[string]string{"org.opencontainers.image.version": "0.1.0"}
-	if v := Derive(svc, i, time.Now()).Version; v != "0.1.0" {
-		t.Errorf("label version when untagged: %s", v)
+	if d := Derive(svc, supervisor.Info{Phase: supervisor.Starting, Status: procs.Status{Restarts: 1}}, nil, now).Detail; d != "Restarting after a crash" {
+		t.Errorf("restart detail: %s", d)
 	}
-	i.Config.Labels = nil
-	i.Config.Image = "localhost:5000/api"
-	if v := Derive(svc, i, time.Now()).Version; v != "latest" {
-		t.Errorf("registry port is not a tag: %s", v)
+	if p := RuntimeProblem("x"); p.What == "" || p.Next == "" {
+		t.Error("runtime problem text")
 	}
 }

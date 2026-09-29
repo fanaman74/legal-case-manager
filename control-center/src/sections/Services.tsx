@@ -14,8 +14,8 @@ export function Services({ snap, run, isAdmin }: { snap: Snapshot; run: RunActio
   const showLast = lastDone?.finishedAt && now - Date.parse(lastDone.finishedAt) < 120_000;
   const running = snap.services.filter((s) => s.state === "running").length;
   const busy = !!op;
-  const dockerDown = !snap.docker.ok;
-  const busyTitle = busy ? "Wait for the current action to finish." : dockerDown ? "Start Docker Desktop first." : undefined;
+  const broken = !snap.runtime.ok;
+  const busyTitle = busy ? "Wait for the current action to finish." : broken ? "Repair the installation first." : undefined;
 
   const doConfirm = () => {
     if (!confirm) return;
@@ -31,11 +31,11 @@ export function Services({ snap, run, isAdmin }: { snap: Snapshot; run: RunActio
       meta={`${running} of ${snap.services.length} running`}
       actions={
         <>
-          <Button variant="primary" icon="play" onClick={() => void run("stack.start_all")} disabled={busy || dockerDown} title={busyTitle}>
+          <Button variant="primary" icon="play" onClick={() => void run("stack.start_all")} disabled={busy || broken} title={busyTitle}>
             Start all
           </Button>
           {isAdmin && (
-            <Button icon="stop" onClick={() => setConfirm({ kind: "stop_all" })} disabled={busy || dockerDown || running === 0} title={busyTitle}>
+            <Button icon="stop" onClick={() => setConfirm({ kind: "stop_all" })} disabled={busy || broken || running === 0} title={busyTitle}>
               Stop all
             </Button>
           )}
@@ -97,7 +97,7 @@ export function Services({ snap, run, isAdmin }: { snap: Snapshot; run: RunActio
                   <td className="mono muted">{s.lastCheck && s.state !== "stopped" ? ago(s.lastCheck, now) : <Dash />}</td>
                   {isAdmin && (
                     <td className="row-actions">
-                      <RowActions s={s} run={run} disabled={busy || dockerDown} title={busyTitle} onStop={() => setConfirm({ kind: "stop", service: s })} />
+                      <RowActions s={s} run={run} disabled={busy || broken} title={busyTitle} onStop={() => setConfirm({ kind: "stop", service: s })} />
                     </td>
                   )}
                 </tr>

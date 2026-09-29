@@ -19,26 +19,35 @@ import (
 
 	"github.com/fanaman74/legal-case-manager/launcher/internal/audit"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/auth"
-	"github.com/fanaman74/legal-case-manager/launcher/internal/compose"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/config"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/health"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/netguard"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/supervisor"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/tlsca"
 )
+
+// Prober checks a running service's health; tests supply a fake.
+type Prober interface {
+	Probe(ctx context.Context, id catalog.ServiceID) health.Result
+}
 
 // Version is set at build time with -ldflags "-X ...server.Version=...".
 var Version = "0.1.0-dev"
 
 // Server wires everything together.
 type Server struct {
-	cfg     config.Config
-	auth    *auth.Store
-	audit   *audit.Log
-	engine  Engine
-	runner  compose.Runner
-	project compose.Project
-	web     fs.FS
-	log     *slog.Logger
-	now     func() time.Time
+	cfg    config.Config
+	auth   *auth.Store
+	audit  *audit.Log
+	sup    supervisor.Supervisor
+	prober Prober
+	web    fs.FS
+	log    *slog.Logger
+	now    func() time.Time
+
+	// stateMu serialises changes to state.json (LAN switch, wanted services).
+	stateMu sync.Mutex
 
 	ops    *operations
 	poller *poller
@@ -54,11 +63,12 @@ type Server struct {
 
 // Options are the dependencies New needs.
 type Options struct {
-	Config config.Config
-	Auth   *auth.Store
-	Audit  *audit.Log
-	Engine Engine
-	Runner compose.Runner
+	Config     config.Config
+	Auth       *auth.Store
+	Audit      *audit.Log
+	Supervisor supervisor.Supervisor
+	// Prober defaults to the real health checks.
+	Prober Prober
 	Web    fs.FS
 	Log    *slog.Logger
 }
@@ -69,15 +79,17 @@ func New(o Options) *Server {
 		cfg:       o.Config,
 		auth:      o.Auth,
 		audit:     o.Audit,
-		engine:    o.Engine,
-		runner:    o.Runner,
-		project:   compose.Project{File: o.Config.ComposeFile, Name: o.Config.Project},
+		sup:       o.Supervisor,
+		prober:    o.Prober,
 		web:       o.Web,
 		log:       o.Log,
 		now:       time.Now,
 		ops:       &operations{},
 		listeners: map[string]*http.Server{},
 		bgCtx:     context.Background(),
+	}
+	if s.prober == nil {
+		s.prober = health.New(o.Config)
 	}
 	s.poller = newPoller(s)
 	s.handler = s.routes()
@@ -210,10 +222,48 @@ func (s *Server) reconcileListeners() error {
 	return firstErr
 }
 
+// updateState changes state.json under the state lock.
+func (s *Server) updateState(f func(*config.State)) (config.State, error) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	st := s.cfg.LoadState()
+	f(&st)
+	return st, s.cfg.SaveState(st)
+}
+
+// startWanted starts the services the Admin had running before the computer
+// (or the launcher) restarted. Nobody needs to sign in for this.
+func (s *Server) startWanted(ctx context.Context) {
+	wanted := map[string]bool{}
+	for _, id := range s.cfg.LoadState().Wanted {
+		wanted[id] = true
+	}
+	var ids []catalog.ServiceID
+	for _, svc := range startOrder() {
+		if wanted[string(svc.ID)] {
+			ids = append(ids, svc.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	entry := audit.Entry{Actor: "launcher", Action: string(catalog.StackStartAll), Outcome: audit.Requested, Detail: "starting the services that were running before the restart"}
+	if err := s.audit.Append(entry); err != nil {
+		s.log.Error("audit write failed; not starting services", "err", err)
+		return
+	}
+	op, err := s.ops.start(catalog.StackStartAll, "", "launcher", "Starting the services that were running before the restart.", s.now())
+	if err != nil {
+		return
+	}
+	s.runServices(ctx, op, catalog.StackStartAll, ids, "launcher", "", "The services")
+}
+
 // Run starts the poller and listeners and blocks until ctx is done.
 func (s *Server) Run(ctx context.Context) error {
 	s.bgCtx = ctx
 	go s.poller.run(ctx)
+	go s.startWanted(ctx)
 	if err := s.reconcileListeners(); err != nil {
 		s.lnMu.Lock()
 		n := len(s.listeners)

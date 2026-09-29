@@ -97,7 +97,7 @@ Every page has a stable URL (deep-linkable to a case, a file, a page within a fi
 |---|---|---|
 | Control Center: Services | Per-service state, uptime, version, CPU/mem, last health check, start/stop/restart, Start all / Stop all | Starting (live), crash-restarted (shows "Restarted automatically at 09:14 after a crash"), error with fix button |
 | Control Center: Jobs | Queue length, running jobs with progress, per-file failures, retry | Empty queue, partial failure |
-| Control Center: System checks | Disk, Docker, embedding model, OCR, certificate expiry, LAN address with copy and QR | Each check: pass / warn / fail with the next step |
+| Control Center: System checks | App runtime, disk, embedding model, OCR, PST parser, certificate expiry, LAN address with copy and QR | Each check: pass / warn / fail with the next step |
 | Control Center: Logs | Per-service log viewer, level and text filter, download diagnostics | Virtualized, follows tail |
 | Setup wizard | 7 gated steps (prerequisites → services → Admin → embeddings → chat provider → first case → invite users) | Each step: to do, in progress, done, failed; cannot advance until the check passes |
 | Sign in | Username and password | Locked out, wrong password, services stopped |

@@ -9,7 +9,7 @@ import (
 	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
 )
 
-// Operation is a compose action running in the background.
+// Operation is a service action running in the background.
 type Operation struct {
 	ID         string             `json:"id"`
 	Action     catalog.ActionName `json:"action"`
@@ -31,12 +31,12 @@ const (
 type operations struct {
 	mu  sync.Mutex
 	ops []*Operation // newest last, capped
-	// running is the one in-flight compose operation; compose runs are
-	// serialised so two actions can't fight over the same containers.
+	// running is the one in-flight operation; operations are serialised so
+	// two actions can't fight over the same services.
 	running *Operation
 }
 
-// ErrBusy is returned when another compose action is still running.
+// errBusy is returned when another action is still running.
 type errBusy struct{ op Operation }
 
 func (e errBusy) Error() string { return "another action is running" }

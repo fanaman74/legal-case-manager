@@ -3,15 +3,12 @@
 // browser, a config file, or the main app.
 package catalog
 
-// ServiceID identifies one service in the compose project.
+// ServiceID identifies one managed service.
 type ServiceID string
 
 const (
 	API    ServiceID = "api"
 	Worker ServiceID = "worker"
-	Queue  ServiceID = "queue"
-	OCR    ServiceID = "ocr"
-	PST    ServiceID = "pst"
 	Models ServiceID = "models"
 )
 
@@ -22,34 +19,26 @@ type Service struct {
 	Name string `json:"name"`
 	// Purpose is one plain sentence about what the service does.
 	Purpose string `json:"purpose"`
-	// ComposeService is the service key in deploy/compose.yaml.
-	ComposeService string `json:"-"`
 }
 
-// Services lists every managed service in display order.
+// Services lists every managed service in display order. OCR and PST parsing
+// are libraries and programs the worker calls, not long-running services, so
+// they appear as system checks instead.
 var Services = []Service{
-	{API, "Web app", "Serves the case manager to you and the people you invite.", "api"},
-	{Worker, "Background worker", "Converts, chunks and indexes files in the background.", "worker"},
-	{Queue, "Job queue", "Holds the list of background jobs waiting to run.", "queue"},
-	{OCR, "OCR", "Reads text from scanned PDFs and images.", "ocr"},
-	{PST, "PST parser", "Opens Outlook .pst archives.", "pst"},
-	{Models, "Local AI models", "Runs the embedding model, and the chat model if you use a local one.", "models"},
+	{API, "Web app", "Serves the case manager to you and the people you invite."},
+	{Worker, "Background worker", "Converts, chunks and indexes files, including OCR and PST parsing."},
+	{Models, "Local AI models", "Runs the embedding model, and the chat model if you use a local one."},
 }
+
+// WindowsName is the Windows service that hosts s. Each one runs under its
+// own virtual account (NT SERVICE\<name>), so file permissions and firewall
+// rules can be set per service.
+func (s Service) WindowsName() string { return "CaseFiles-" + string(s.ID) }
 
 // Lookup returns the service with the given id.
 func Lookup(id string) (Service, bool) {
 	for _, s := range Services {
 		if string(s.ID) == id {
-			return s, true
-		}
-	}
-	return Service{}, false
-}
-
-// ByComposeService returns the service whose compose key matches name.
-func ByComposeService(name string) (Service, bool) {
-	for _, s := range Services {
-		if s.ComposeService == name {
 			return s, true
 		}
 	}

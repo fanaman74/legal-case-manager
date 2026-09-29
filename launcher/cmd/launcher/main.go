@@ -2,8 +2,10 @@
 // and starts, stops and monitors the Case File Manager services.
 //
 //	launcher run                 run in the foreground
-//	launcher service install     register as a Windows service (Windows only)
+//	launcher host <service>      run one app service (started by Windows)
+//	launcher service install     register the Windows services (Windows only)
 //	launcher service uninstall
+//	launcher prepare             create the certificates and setup code (installer)
 //	launcher setup-code          print the one-time setup code, if setup isn't done
 //	launcher verify-audit        check the audit log's hash chain
 package main
@@ -16,19 +18,18 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/fanaman74/legal-case-manager/launcher/internal/audit"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/auth"
-	"github.com/fanaman74/legal-case-manager/launcher/internal/compose"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/config"
-	"github.com/fanaman74/legal-case-manager/launcher/internal/docker"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/procs"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/redact"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/server"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/supervisor"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/web"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/winsvc"
 )
@@ -48,9 +49,23 @@ func dispatch(args []string) error {
 	}
 	rest := fs.Args()
 
-	// Started by the Windows service manager: no arguments are passed.
+	// A service host for one app process: `host <service>`.
+	if len(rest) == 2 && rest[0] == "host" {
+		svc, ok := catalog.Lookup(rest[1])
+		if !ok {
+			return fmt.Errorf("unknown service %q", rest[1])
+		}
+		hostFn := func(ctx context.Context) error { return host(ctx, *cfgPath, svc.ID) }
+		if winsvc.IsService() {
+			return winsvc.Run(svc.WindowsName(), hostFn)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return hostFn(ctx)
+	}
+	// The launcher itself, started by the Windows service manager.
 	if winsvc.IsService() {
-		return winsvc.Run(func(ctx context.Context) error { return run(ctx, *cfgPath) })
+		return winsvc.Run(winsvc.Name, func(ctx context.Context) error { return run(ctx, *cfgPath) })
 	}
 	if len(rest) == 0 {
 		rest = []string{"run"}
@@ -72,6 +87,30 @@ func dispatch(args []string) error {
 			return winsvc.Uninstall()
 		}
 		return errors.New("usage: launcher service install|uninstall")
+	case "prepare":
+		// Run by the installer before it sets file permissions, so the
+		// certificate files exist and can be shared with the web app.
+		cfg, err := config.Load(*cfgPath)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(cfg.LauncherDir(), 0o700); err != nil {
+			return err
+		}
+		if _, _, err := auth.Open(cfg.LauncherDir()); err != nil {
+			return err
+		}
+		srv := server.New(server.Options{Config: cfg, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		if err := srv.EnsureCertificates(); err != nil {
+			return fmt.Errorf("create certificates: %w", err)
+		}
+		for _, svc := range catalog.Services {
+			if err := os.MkdirAll(procs.ServiceLogDir(cfg, svc.ID), 0o750); err != nil {
+				return err
+			}
+		}
+		fmt.Println("Prepared certificates, setup code and log folders.")
+		return nil
 	case "setup-code":
 		cfg, err := config.Load(*cfgPath)
 		if err != nil {
@@ -153,37 +192,56 @@ func run(ctx context.Context, cfgPath string) error {
 		return fmt.Errorf("open audit log: %w", err)
 	}
 
-	dockerBin := cfg.Docker
-	if dockerBin == "" {
-		if p, err := exec.LookPath("docker"); err == nil {
-			dockerBin = p
-		} else {
-			dockerBin = defaultDocker()
+	var sup supervisor.Supervisor
+	switch cfg.Supervisor {
+	case "windows":
+		if sup, err = supervisor.NewWindows(cfg); err != nil {
+			return err
 		}
+	case "direct":
+		d := supervisor.NewDirect(procs.Specs(cfg, server.Version))
+		defer d.Close() // child processes stop with the launcher
+		sup = d
+	default:
+		return fmt.Errorf(`unknown supervisor %q in launcher.json; use "windows" or "direct"`, cfg.Supervisor)
 	}
 
 	srv := server.New(server.Options{
-		Config: cfg,
-		Auth:   store,
-		Audit:  al,
-		Engine: docker.New(cfg.Project),
-		Runner: compose.ExecRunner{Docker: dockerBin},
-		Web:    web.FS(),
-		Log:    log,
+		Config:     cfg,
+		Auth:       store,
+		Audit:      al,
+		Supervisor: sup,
+		Web:        web.FS(),
+		Log:        log,
 	})
 	if err := srv.EnsureCertificates(); err != nil {
 		return fmt.Errorf("prepare HTTPS certificate: %w", err)
 	}
 	_ = al.Append(audit.Entry{Actor: "system", IP: "local", Action: "launcher.start", Outcome: audit.Succeeded, Detail: "version " + server.Version})
-	log.Info("launcher starting", "version", server.Version, "data", cfg.DataDir, "compose", cfg.ComposeFile)
+	log.Info("launcher starting", "version", server.Version, "data", cfg.DataDir, "supervisor", sup.Name())
 	err = srv.Run(ctx)
 	_ = al.Append(audit.Entry{Actor: "system", IP: "local", Action: "launcher.stop", Outcome: audit.Succeeded})
 	return err
 }
 
-func defaultDocker() string {
-	if strings.HasPrefix(strings.ToLower(os.Getenv("OS")), "windows") {
-		return `C:\Program Files\Docker\Docker\resources\bin\docker.exe`
+// host runs one app process for the Windows service manager (or in the
+// foreground for testing), restarting it after crashes and recording its
+// state where the launcher can read it.
+func host(ctx context.Context, cfgPath string, id catalog.ServiceID) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
 	}
-	return "docker"
+	spec := procs.Specs(cfg, server.Version)[id]
+	statusPath := procs.StatusFile(cfg, id)
+	k := procs.Keep(spec, func(st procs.Status) { _ = procs.WriteStatus(statusPath, st) })
+	select {
+	case <-ctx.Done():
+		k.Stop()
+	case <-k.Done():
+		// Gave up after repeated crashes, or the program is missing. Stop
+		// cleanly so Windows doesn't restart it; the launcher shows why.
+	}
+	_ = procs.WriteStatus(statusPath, k.Status())
+	return nil
 }

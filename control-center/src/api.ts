@@ -29,7 +29,7 @@ export interface Service {
   detail: string;
   startedAt?: string;
   version: string;
-  usage?: { cpuPercent: number; memoryBytes: number; memoryLimit: number };
+  usage?: { cpuPercent: number; memoryBytes: number };
   lastCheck?: string;
   restartCount: number;
   autoRestartAt?: string;
@@ -66,7 +66,7 @@ export interface WizardStep {
 export interface Snapshot {
   generatedAt: string;
   launcherVersion: string;
-  docker: { ok: boolean; version?: string; problem?: Problem };
+  runtime: { ok: boolean; name: string; problem?: Problem };
   services: Service[];
   checks: Check[];
   lan: { controlCenterOnLan: boolean; appUrls: string[]; controlCenterUrls: string[] };

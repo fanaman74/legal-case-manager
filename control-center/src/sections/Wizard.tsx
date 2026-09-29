@@ -104,7 +104,7 @@ function Step({
 }
 
 function Prerequisites({ snap }: { snap: Snapshot }) {
-  const rows = snap.checks.filter((c) => ["docker", "disk", "port"].includes(c.id));
+  const rows = snap.checks.filter((c) => ["runtime", "disk", "port"].includes(c.id));
   return (
     <>
       <ul className="mini-checks">
@@ -129,11 +129,11 @@ function StartServices({ snap, run }: { snap: Snapshot; run: RunAction }) {
   const running = snap.services.filter((s) => s.state === "running").length;
   return (
     <div className="step__action">
-      <Button variant="primary" icon={op ? "progress" : "play"} onClick={() => void run("stack.start_all")} busy={!!op} disabled={!snap.docker.ok}>
+      <Button variant="primary" icon={op ? "progress" : "play"} onClick={() => void run("stack.start_all")} busy={!!op} disabled={!snap.runtime.ok}>
         {op ? (op.action.endsWith("stop") || op.action.endsWith("stop_all") ? "Stopping" : "Starting services") : snap.wizard[1]?.state === "failed" ? "Try again" : "Start all services"}
       </Button>
       <span className="hint" aria-live="polite">{running} of {snap.services.length} running</span>
-      {!snap.docker.ok && <span className="hint">Start Docker Desktop first.</span>}
+      {!snap.runtime.ok && <span className="hint">Repair the installation first. See the message at the top of the page.</span>}
     </div>
   );
 }

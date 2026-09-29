@@ -34,11 +34,11 @@ func TestParseAcceptsEveryAllowListedShape(t *testing.T) {
 }
 
 func TestParseServiceComesFromCatalog(t *testing.T) {
-	got, err := Parse(strings.NewReader(`{"action":"service.restart","service":"pst"}`))
+	got, err := Parse(strings.NewReader(`{"action":"service.restart","service":"models"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Service == nil || got.Service.ComposeService != "pst" || got.Service.ID != catalog.PST {
+	if got.Service == nil || got.Service.WindowsName() != "CaseFiles-models" || got.Service.ID != catalog.Models {
 		t.Fatalf("service not resolved from catalog: %+v", got.Service)
 	}
 }
@@ -56,6 +56,8 @@ func TestParseRejects(t *testing.T) {
 		`{"action":"service.start"}`,
 		`{"action":"service.start","service":""}`,
 		`{"action":"service.start","service":"postgres"}`,
+		`{"action":"service.start","service":"pst"}`,
+		`{"action":"service.start","service":"CaseFiles-api"}`,
 		`{"action":"service.start","service":"api; rm -rf /"}`,
 		`{"action":"service.start","service":"../api"}`,
 		`{"action":"service.start","service":"API"}`,

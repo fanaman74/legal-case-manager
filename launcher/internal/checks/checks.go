@@ -3,12 +3,16 @@
 package checks
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fanaman74/legal-case-manager/launcher/internal/audit"
@@ -88,15 +92,79 @@ func HumanBytes(b uint64) string {
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// Docker reports whether the engine answered.
-func Docker(version string, err error) Check {
-	c := Check{ID: "docker", Label: "Docker"}
+// Probe runs a fixed tool command (never anything from a request) and
+// returns the first line of its output.
+func Probe(path string, args []string, dir string) (string, error) {
+	if _, err := os.Stat(path); err != nil {
+		return "", os.ErrNotExist
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Dir = dir
+	cmd.Env = probeEnv()
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	hideWindow(cmd)
+	err := cmd.Run()
+	line := strings.TrimSpace(out.String())
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = strings.TrimSpace(line[:i])
+	}
+	if len(line) > 200 {
+		line = line[:200]
+	}
+	return line, err
+}
+
+func probeEnv() []string {
+	var env []string
+	for _, k := range []string{"SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP", "PATH", "HOME", "LANG"} {
+		if v, ok := os.LookupEnv(k); ok {
+			env = append(env, k+"="+v)
+		}
+	}
+	return append(env, "PYTHONNOUSERSITE=1", "PYTHONDONTWRITEBYTECODE=1")
+}
+
+// Runtime reports whether the app services can be run: Python is installed
+// and the services are registered.
+func Runtime(pythonVersion string, pythonErr, supervisorErr error, supervisorName string) Check {
+	c := Check{ID: "runtime", Label: "App runtime"}
+	switch {
+	case pythonErr != nil:
+		c.Level, c.Detail = Fail, "Python isn't installed in the app folder."
+		c.Next = "Run install.ps1 again as administrator. It installs Python for the app and keeps your cases."
+	case supervisorErr != nil:
+		c.Level, c.Detail = Fail, supervisorErr.Error()
+		c.Next = "Run install.ps1 again as administrator."
+	default:
+		c.Level, c.Detail = Pass, pythonVersion+", "+strings.ToLower(supervisorName[:1])+supervisorName[1:]
+	}
+	return c
+}
+
+// OCR reports whether Tesseract runs.
+func OCR(version string, err error) Check {
+	c := Check{ID: "ocr", Label: "OCR"}
 	if err != nil {
-		c.Level, c.Detail = Fail, "Docker isn't running."
-		c.Next = "Open Docker Desktop and wait until it shows Engine running."
+		c.Level, c.Detail = Fail, "Tesseract OCR isn't installed or won't run."
+		c.Next = "Run install.ps1 again as administrator. Scanned PDFs can't be read until OCR works."
 		return c
 	}
-	c.Level, c.Detail = Pass, "Running (engine "+version+")"
+	c.Level, c.Detail = Pass, "Installed ("+strings.TrimPrefix(version, "tesseract ")+")"
+	return c
+}
+
+// PST reports whether the PST library loads in the app's Python.
+func PST(version string, err error) Check {
+	c := Check{ID: "pst", Label: "PST parser"}
+	if err != nil {
+		c.Level, c.Detail = Fail, "The Outlook PST library isn't installed or won't load."
+		c.Next = "Run install.ps1 again as administrator. PST files can't be opened until it works."
+		return c
+	}
+	c.Level, c.Detail = Pass, "Installed (libpff "+version+")"
 	return c
 }
 
@@ -119,27 +187,15 @@ func Port(port int, heldByApp bool) Check {
 }
 
 // Model checks that the embedding model files are on disk.
-func Model(dataDir, model string) Check {
+func Model(modelsDir, model string) Check {
 	c := Check{ID: "model", Label: "Embedding model"}
-	manifest := filepath.Join(dataDir, "models", "models", "manifests", "registry.ollama.ai", "library", model)
+	manifest := filepath.Join(modelsDir, "manifests", "registry.ollama.ai", "library", model)
 	if _, err := os.Stat(manifest); err == nil {
 		c.Level, c.Detail = Pass, model+" is downloaded"
 		return c
 	}
 	c.Level, c.Detail = Pending, model+" isn't downloaded yet."
 	c.Next = "The setup wizard downloads it in step 4."
-	return c
-}
-
-// OCR reflects the OCR service's health.
-func OCR(running bool) Check {
-	c := Check{ID: "ocr", Label: "OCR"}
-	if running {
-		c.Level, c.Detail = Pass, "Installed and responding"
-		return c
-	}
-	c.Level, c.Detail = Pending, "Available once the OCR service is running."
-	c.Next = "Start the OCR service above."
 	return c
 }
 

@@ -86,10 +86,10 @@ func IssueServer(dir string, names []string, ips []net.IP) error {
 	if err != nil {
 		return err
 	}
-	// The server key is bind-mounted read-only into the web app container,
-	// which runs as a non-root user, so the file itself must be readable.
-	// The certs folder (0700) keeps other users on the host out.
-	if err := writeKey(filepath.Join(dir, ServerKey), key, 0o644); err != nil {
+	// Owner-only. On Windows the installer additionally lets the web app's
+	// service account read this file (and server.crt), never ca.key. The file
+	// is rewritten in place on renewal, so those permissions are kept.
+	if err := writeKey(filepath.Join(dir, ServerKey), key, 0o600); err != nil {
 		return err
 	}
 	return writeCert(filepath.Join(dir, ServerCert), der)

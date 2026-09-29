@@ -6,28 +6,29 @@ A self-hosted, multi-user legal case file manager. It organises case material, c
 
 ## How it fits together
 
+Everything runs as ordinary Windows programs. There is no Docker.
+
 ```
 Windows host
-├── launcher.exe (Windows service, always on)
+├── launcher.exe  (Windows service "CaseFileManagerLauncher", LocalSystem, starts at boot)
 │     ├── Control Center at https://localhost:8443 (Admin only)
 │     ├── its own login, one-time setup code, hash-chained audit log
-│     └── runs only allow-listed `docker compose` actions
-└── Docker Compose project "casefiles"
-      api · worker · queue · ocr · pst · models
+│     └── starts and stops only the three services below, by name
+├── CaseFiles-api     web app (Python)        runs as NT SERVICE\CaseFiles-api
+├── CaseFiles-worker  background worker       runs as NT SERVICE\CaseFiles-worker (no internet)
+└── CaseFiles-models  local AI models (Ollama) runs as NT SERVICE\CaseFiles-models
 ```
 
-The launcher runs on the host, never in a container, so no container ever gets the Docker socket. See [docs/design/architecture-note.md](docs/design/architecture-note.md).
+Each app service is hosted by `launcher.exe host <service>` under its own virtual account, with access only to the folders it needs. See [docs/design/architecture-note.md](docs/design/architecture-note.md).
 
 ## Repository layout
 
 | Path | What |
 |---|---|
-| `launcher/` | Go launcher: allow-list, auth, audit, health checks, HTTPS server |
+| `launcher/` | Go launcher: allow-list, auth, audit, service supervisor, health checks, HTTPS server |
 | `control-center/` | React Control Center, built into the launcher binary |
-| `services/api/` | FastAPI web app and background worker (phase 1: health only) |
-| `services/tools/` | OCR and PST parser containers (phase 1: health only) |
-| `deploy/compose.yaml` | Service definitions |
-| `scripts/` | Build script and Windows installer |
+| `services/api/` | FastAPI web app and background worker (phase 1: health only). Its Dockerfile is only for a future Railway deployment. |
+| `scripts/` | Build script, Windows installer, pinned runtime downloads (`runtimes.json`), CI smoke test |
 | `docs/` | Design brief, tokens, architecture, install and certificate guides |
 
 ## Install
@@ -37,7 +38,7 @@ See [docs/install-windows.md](docs/install-windows.md).
 ## Develop
 
 ```bash
-# Launcher tests (allow-list, auth, audit chain, network guard, CSRF)
+# Launcher tests (allow-list, auth, audit chain, network guard, CSRF, supervisor)
 cd launcher && go test -race ./...
 
 # Control Center
@@ -50,4 +51,18 @@ cd services/api && pip install -r requirements-dev.txt && pytest
 scripts/build.sh
 ```
 
-To run locally on Linux or macOS, write a `launcher.json` with `data_dir`, `state_dir`, `certs_dir` and `compose_file`, a matching `deploy/.env` (see `deploy/.env.example`), then run `dist/launcher --config launcher.json`. The containers run as uid 10001, so the data folder must be writable by that user.
+To run locally on Linux or macOS, create a virtualenv with `services/api/requirements.txt`, then write a `launcher.json` such as:
+
+```json
+{"app_dir": "services/api", "python": ".venv/bin/python", "ollama": "/usr/local/bin/ollama",
+ "tesseract": "/usr/bin/tesseract", "supervisor": "direct", "app_port": 9443}
+```
+
+and run `dist/launcher --config launcher.json`. In `direct` mode the launcher runs the services as its own child processes.
+
+After changing `services/api/requirements.txt`, regenerate the hash-pinned Windows lock file:
+
+```bash
+cd services/api && uv pip compile requirements.txt --generate-hashes \
+  --python-platform x86_64-pc-windows-msvc --python-version 3.13 --no-header -o requirements-windows.txt
+```

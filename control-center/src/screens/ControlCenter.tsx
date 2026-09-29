@@ -89,9 +89,9 @@ export function ControlCenter({
         </div>
         <div className="topbar__right">
           {snap && (
-            <span className={`engine engine--${snap.docker.ok ? "ok" : "down"}`}>
-              <Icon name="docker" />
-              {snap.docker.ok ? `Docker ${snap.docker.version}` : "Docker not running"}
+            <span className={`engine engine--${snap.runtime.ok ? "ok" : "down"}`}>
+              <Icon name="engine" />
+              {snap.runtime.ok ? snap.runtime.name : "Installation needs repair"}
             </span>
           )}
           <span className="topbar__user">{isAdmin ? session.user : "Setup"}</span>
@@ -137,12 +137,12 @@ export function ControlCenter({
             <button className="banner__close" onClick={() => setNotice(null)} aria-label="Dismiss">×</button>
           </div>
         )}
-        {snap?.docker.problem && (
+        {snap?.runtime.problem && (
           <div className="banner banner--error banner--problem" role="alert">
             <Icon name="error" />
             <div>
-              <p className="banner__title">{snap.docker.problem.what}</p>
-              <p>{snap.docker.problem.why} {snap.docker.problem.next}</p>
+              <p className="banner__title">{snap.runtime.problem.what}</p>
+              <p>{snap.runtime.problem.why} {snap.runtime.problem.next}</p>
             </div>
           </div>
         )}

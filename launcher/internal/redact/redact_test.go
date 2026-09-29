@@ -13,6 +13,7 @@ func TestString(t *testing.T) {
 		"password=hunter2hunter2 user=fred":                                      {"hunter2"},
 		"converting /data/cases/case_42/original/Smith privileged memo.docx now": {"case_42", "privileged"},
 		`opened C:\CaseFiles\data\cases\case_42\original\memo.pdf`:               {"case_42", "memo.pdf"},
+		`opened D:\Legal\CaseFiles\data\cases\case_7\original\Jones letter.pdf`:  {"case_7", "Jones"},
 	}
 	for in, secrets := range cases {
 		out := String(in)

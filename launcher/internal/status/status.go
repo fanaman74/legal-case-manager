@@ -1,6 +1,6 @@
-// Package status turns raw container details into the four states the
-// Control Center shows, plus a plain-language explanation when something is
-// wrong.
+// Package status turns process state and health checks into the four states
+// the Control Center shows, plus a plain-language explanation when something
+// is wrong.
 package status
 
 import (
@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
-	"github.com/fanaman74/legal-case-manager/launcher/internal/docker"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/health"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/supervisor"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/sysinfo"
 )
 
 // State is what the Admin sees.
@@ -36,140 +38,117 @@ type Problem struct {
 // Service is the Control Center view of one service.
 type Service struct {
 	catalog.Service
-	State        State         `json:"state"`
-	Detail       string        `json:"detail"`
-	StartedAt    *time.Time    `json:"startedAt,omitempty"`
-	Version      string        `json:"version"`
-	Usage        *docker.Usage `json:"usage,omitempty"`
-	LastCheck    *time.Time    `json:"lastCheck,omitempty"`
-	RestartCount int           `json:"restartCount"`
-	AutoRestart  *time.Time    `json:"autoRestartAt,omitempty"`
-	Problem      *Problem      `json:"problem,omitempty"`
+	State        State          `json:"state"`
+	Detail       string         `json:"detail"`
+	StartedAt    *time.Time     `json:"startedAt,omitempty"`
+	Version      string         `json:"version"`
+	Usage        *sysinfo.Usage `json:"usage,omitempty"`
+	LastCheck    *time.Time     `json:"lastCheck,omitempty"`
+	RestartCount int            `json:"restartCount"`
+	AutoRestart  *time.Time     `json:"autoRestartAt,omitempty"`
+	Problem      *Problem       `json:"problem,omitempty"`
 }
 
-// Derive computes the state of svc from its container. info is nil when the
-// container does not exist yet.
-func Derive(svc catalog.Service, info *docker.Inspect, polledAt time.Time) Service {
-	out := Service{Service: svc}
-	if info == nil {
-		out.State = Stopped
-		out.Detail = "Not started yet"
+// StartGrace is how long a newly started service may take to pass its first
+// health check before it counts as not responding. Loading the models can
+// take a while on a slow disk.
+var StartGrace = map[catalog.ServiceID]time.Duration{
+	catalog.API:    45 * time.Second,
+	catalog.Worker: 30 * time.Second,
+	catalog.Models: 90 * time.Second,
+}
+
+func restartFix(svc catalog.Service) (catalog.ActionName, string) {
+	return catalog.ServiceRestart, "Restart " + svc.Name
+}
+
+// Derive computes what the Admin sees for svc. h is the latest health check,
+// or nil if the service wasn't probed.
+func Derive(svc catalog.Service, info supervisor.Info, h *health.Result, now time.Time) Service {
+	out := Service{Service: svc, RestartCount: info.Restarts, AutoRestart: info.LastRestartAt}
+	if h != nil {
+		t := h.At
+		out.LastCheck = &t
+		out.Version = h.Version
+	}
+	fix, fixLabel := restartFix(svc)
+
+	switch {
+	case info.Missing:
+		out.State, out.Detail = Error, "Not installed"
+		out.Problem = &Problem{
+			What: svc.Name + " can't start because its program is missing.",
+			Why:  "Part of the installation is missing or was removed, often by antivirus software.",
+			Next: "Run install.ps1 again as administrator. It puts back the missing files and keeps your cases.",
+		}
+		return out
+	case info.GaveUp && info.StartErr != "":
+		out.State, out.Detail = Error, "Couldn't start"
+		out.Problem = &Problem{
+			What: svc.Name + " couldn't start.", Why: "Windows reported: " + firstLine(info.StartErr) + ".",
+			Next: "Try starting it again. If it fails again, download diagnostics and run install.ps1 again.",
+			FixAction: fix, FixLabel: fixLabel,
+		}
+		return out
+	case info.GaveUp:
+		code := ""
+		if info.LastExit != nil {
+			code = fmt.Sprintf(" (code %d)", info.LastExit.Code)
+		}
+		out.State, out.Detail = Error, "Keeps stopping"+code
+		out.Problem = &Problem{
+			What:      svc.Name + " stopped " + fmt.Sprint(info.Restarts+1) + " times in a few minutes, so the launcher stopped restarting it.",
+			Why:       "It exits with an error as soon as it starts. The last lines of its log usually say why.",
+			Next:      "Open its log below. When the cause is fixed, restart it. If you can't tell, download diagnostics.",
+			FixAction: fix, FixLabel: fixLabel,
+		}
 		return out
 	}
-	out.Version = version(info)
-	out.RestartCount = info.RestartCount
-	if !info.State.StartedAt.IsZero() && info.State.Running {
-		t := info.State.StartedAt
-		out.StartedAt = &t
-	}
-	out.LastCheck = &polledAt
-	health := ""
-	if h := info.State.Health; h != nil {
-		health = h.Status
-		if n := len(h.Log); n > 0 && !h.Log[n-1].End.IsZero() {
-			t := h.Log[n-1].End
-			out.LastCheck = &t
-		}
-	}
 
-	switch info.State.Status {
-	case "running":
-		switch health {
-		case "", "healthy":
+	switch info.Phase {
+	case supervisor.Stopped:
+		out.State, out.Detail = Stopped, "Stopped"
+		if info.LastExit == nil {
+			out.Detail = "Not started yet"
+		}
+		out.LastCheck, out.Version, out.AutoRestart = nil, "", nil
+	case supervisor.Stopping:
+		out.State, out.Detail = Starting, "Stopping"
+	case supervisor.Starting:
+		out.State, out.Detail = Starting, "Starting up"
+		if info.Restarts > 0 {
+			out.Detail = "Restarting after a crash"
+		}
+	case supervisor.Running:
+		out.StartedAt = info.StartedAt
+		switch {
+		case h != nil && h.OK:
 			out.State, out.Detail = Running, "Running"
-		case "starting":
+		case info.StartedAt != nil && now.Sub(*info.StartedAt) < StartGrace[svc.ID]:
 			out.State, out.Detail = Starting, "Starting up"
 		default:
+			why := "It may still be loading, or it hit an internal error."
+			if h != nil && h.Detail != "" {
+				why = "Its health check says " + h.Detail + ". " + why
+			}
 			out.State, out.Detail = Error, "Not responding"
 			out.Problem = &Problem{
 				What:      svc.Name + " is running but not responding to health checks.",
-				Why:       "It may still be loading, or it hit an internal error." + lastHealthOutput(info),
-				Next:      "Restart it. If this keeps happening, download diagnostics from the Logs section.",
-				FixAction: catalog.ServiceRestart,
-				FixLabel:  "Restart " + svc.Name,
+				Why:       why,
+				Next:      "Restart it. If this keeps happening, open its log below and download diagnostics.",
+				FixAction: fix, FixLabel: fixLabel,
 			}
 		}
-	case "restarting":
-		out.State, out.Detail = Starting, "Restarting after a crash"
-	case "created":
-		out.State, out.Detail = Stopped, "Not started yet"
-	case "paused":
-		out.State, out.Detail = Stopped, "Paused"
-	case "exited", "dead":
-		out = exited(out, svc, info)
 	default:
 		out.State, out.Detail = Error, "Unknown state"
 		out.Problem = &Problem{
-			What:      svc.Name + " is in a state the launcher doesn't recognise (" + info.State.Status + ").",
-			Why:       "Docker reported an unexpected status.",
-			Next:      "Restart it. If that doesn't help, restart Docker Desktop.",
-			FixAction: catalog.ServiceRestart,
-			FixLabel:  "Restart " + svc.Name,
+			What: svc.Name + " is in a state the launcher doesn't recognise.",
+			Why:  "Windows reported an unexpected service state.",
+			Next: "Restart it. If that doesn't help, restart the computer.",
+			FixAction: fix, FixLabel: fixLabel,
 		}
 	}
 	return out
-}
-
-func exited(out Service, svc catalog.Service, info *docker.Inspect) Service {
-	st := info.State
-	switch {
-	case st.OOMKilled:
-		out.State, out.Detail = Error, "Ran out of memory"
-		out.Problem = &Problem{
-			What:      svc.Name + " stopped because it ran out of memory.",
-			Why:       "Docker probably has too little memory for this job. Large PST files and OCR need the most.",
-			Next:      "In Docker Desktop, open Settings › Resources and give Docker at least 6 GB of memory, then restart " + svc.Name + ".",
-			FixAction: catalog.ServiceRestart,
-			FixLabel:  "Restart " + svc.Name,
-		}
-	case st.Status == "exited" && st.ExitCode == 0:
-		out.State, out.Detail = Stopped, "Stopped"
-	case st.Status == "exited" && (st.ExitCode == 137 || st.ExitCode == 143):
-		// Killed by a stop signal: treat as a normal stop.
-		out.State, out.Detail = Stopped, "Stopped"
-	default:
-		out.State, out.Detail = Error, fmt.Sprintf("Stopped unexpectedly (code %d)", st.ExitCode)
-		why := "It exited with an error. The last lines of its log usually say why."
-		if st.Error != "" {
-			why = "Docker reported: " + firstLine(st.Error) + "."
-		}
-		out.Problem = &Problem{
-			What:      svc.Name + " stopped unexpectedly.",
-			Why:       why,
-			Next:      "Restart it. If it stops again, open its log below and download diagnostics.",
-			FixAction: catalog.ServiceRestart,
-			FixLabel:  "Restart " + svc.Name,
-		}
-	}
-	return out
-}
-
-// version prefers the image tag, which is what compose.yaml pins; a base
-// image's version label (e.g. an OS release) would be misleading.
-func version(info *docker.Inspect) string {
-	img := info.Config.Image
-	if i := strings.LastIndex(img, ":"); i >= 0 && !strings.Contains(img[i:], "/") && img[i+1:] != "latest" {
-		return img[i+1:]
-	}
-	if v := info.Config.Labels["org.opencontainers.image.version"]; v != "" {
-		return v
-	}
-	return "latest"
-}
-
-func lastHealthOutput(info *docker.Inspect) string {
-	h := info.State.Health
-	if h == nil || len(h.Log) == 0 {
-		return ""
-	}
-	out := firstLine(h.Log[len(h.Log)-1].Output)
-	if out == "" {
-		return ""
-	}
-	if len(out) > 160 {
-		out = out[:160] + "…"
-	}
-	return " Last check said: " + out
 }
 
 func firstLine(s string) string {
@@ -180,9 +159,11 @@ func firstLine(s string) string {
 	return s
 }
 
-// DockerDown is the problem shown when the engine can't be reached.
-var DockerDown = Problem{
-	What: "Docker isn't running.",
-	Why:  "Docker Desktop hasn't started yet, or it was closed. Every service runs inside Docker.",
-	Next: "Open Docker Desktop and wait until it shows Engine running. This page updates by itself.",
+// RuntimeProblem is shown when services can't be run at all.
+func RuntimeProblem(reason string) Problem {
+	return Problem{
+		What: "The app services can't be started.",
+		Why:  reason,
+		Next: "Run install.ps1 again as administrator. It repairs the installation and keeps your cases. This page updates by itself.",
+	}
 }

@@ -21,7 +21,7 @@ const paths = {
   restart: <><path d="M2.5 8a5.5 5.5 0 105.5-5.5H5.5" /><path d="M7 1L5 2.5 7 4" /></>,
   external: <><path d="M9 2h5v5M14 2L7.5 8.5M12 9.5V14H2V4h4.5" /></>,
   signout: <><path d="M6 2.5H3v11h3M10.5 5L13.5 8l-3 3M13.5 8H6" /></>,
-  docker: <><rect x="2" y="7" width="12" height="6" rx="1" /><path d="M4 7V5h2v2M7 7V5h2v2M7 5V3h2v2" /></>,
+  engine: <><rect x="2" y="3" width="12" height="4" rx="1" /><rect x="2" y="9" width="12" height="4" rx="1" /><path d="M5 5h.01M5 11h.01" /></>,
 } as const;
 
 export type IconName = keyof typeof paths;
