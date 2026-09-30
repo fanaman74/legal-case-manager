@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  launcher:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: launcher/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: control-center/package-lock.json
+      - name: Control Center
+        working-directory: control-center
+        run: npm ci && npm run build && npm test
+      - name: gofmt
+        working-directory: launcher
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Vet (Linux and Windows)
+        working-directory: launcher
+        run: go vet ./... && GOOS=windows go vet ./...
+      - name: Test
+        working-directory: launcher
+        run: go test -race ./...
+      - name: Build Windows launcher
+        working-directory: launcher
+        run: GOOS=windows GOARCH=amd64 go build -o /tmp/launcher.exe ./cmd/launcher
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - working-directory: services/api
+        run: pip install -r requirements-dev.txt && pytest -q
+      - name: Windows lock file matches requirements.txt
+        working-directory: services/api
+        run: |
+          pip install uv==0.8.17
+          uv pip compile requirements.txt --generate-hashes --python-platform x86_64-pc-windows-msvc \
+            --python-version 3.13 --no-header -o /tmp/lock.txt
+          diff -u requirements-windows.txt /tmp/lock.txt
+
+  runtimes:
+    # Every download the installer makes must match its pinned SHA-256.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check pinned downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status=0
+          for name in $(jq -r 'to_entries[] | select(.value|type=="object") | .key' launcher/internal/components/runtimes.json); do
+            url=$(jq -r ".${name}.url" launcher/internal/components/runtimes.json)
+            want=$(jq -r ".${name}.sha256" launcher/internal/components/runtimes.json | tr A-Z a-z)
+            if ! curl -fsSL --retry 3 -o /tmp/dl "$url"; then
+              echo "::error::$name download failed: $url"; status=1
+              # For GitHub releases, list the latest tags and Windows assets so a valid pin can be chosen.
+              repo=$(echo "$url" | sed -n 's#https://github.com/\([^/]*/[^/]*\)/releases/.*#\1#p')
+              if [ -n "$repo" ]; then
+                curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$repo/releases?per_page=5" \
+                  | jq -r '.[] | .tag_name + ": " + ([.assets[].name | select(test("w64|windows"))] | join(", "))' || true
+              fi
+              continue
+            fi
+            got=$(sha256sum /tmp/dl | cut -d' ' -f1)
+            echo "$name $(stat -c %s /tmp/dl) bytes sha256=$got"
+            if [ "$got" != "$want" ]; then echo "::error::$name hash mismatch: runtimes.json has '$want'"; status=1; fi
+            rm -f /tmp/dl
+          done
+          exit $status
+
+  windows-install:
+    # Runs the real installer on Windows and checks the result end to end.
+    needs: [runtimes]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: launcher/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: control-center/package-lock.json
+      - name: Build the install folder
+        shell: bash
+        run: ./scripts/build.sh windows
+      - name: Install
+        shell: pwsh
+        run: |
+          # The runner is already an administrator, so Setup.exe doesn't ask Windows for permission.
+          .\dist\windows\Setup.exe setup --no-browser
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Smoke test
+        shell: pwsh
+        run: .\scripts\ci\windows-smoke.ps1
+      - name: Show logs
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($f in @("C:\CaseFiles\launcher\launcher.log") + @(Get-ChildItem C:\CaseFiles\logs -Recurse -Filter service.log -ErrorAction SilentlyContinue).FullName) {
+            if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 80 }
+          }

@@ -1,0 +1,127 @@
+/* Legal Case File Manager: design tokens (draft, pending approval)
+ * Source of truth for both the Control Center (launcher) and the main app.
+ * Fonts are bundled locally; never load them from a CDN.
+ */
+
+:root {
+  /* Type families */
+  --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-read: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+
+  /* Type scale (UI) */
+  --text-xs: 0.75rem;    /* 12px  captions, table meta */
+  --text-sm: 0.8125rem;  /* 13px  secondary, badges */
+  --text-base: 0.875rem; /* 14px  UI body, tables, forms */
+  --text-md: 1rem;       /* 16px  section headings */
+  --text-lg: 1.125rem;   /* 18px  panel titles */
+  --text-xl: 1.375rem;   /* 22px  page titles */
+  --text-2xl: 1.75rem;   /* 28px  wizard step titles only */
+  --leading-ui: 1.45;
+  --leading-tight: 1.25;
+
+  /* Reading (Markdown, email, AI answers) */
+  --read-size: 1.0625rem; /* 17px */
+  --read-leading: 1.6;
+  --read-measure: 68ch;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --tracking-label: 0.04em; /* uppercase labels only */
+
+  /* Spacing, 4px grid */
+  --space-0: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --row-compact: 32px;
+  --row-comfortable: 40px;
+
+  /* Radius */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  /* Motion */
+  --dur-fast: 120ms;
+  --dur-panel: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Color: neutrals (light) */
+  --paper: #F6F5F1;
+  --surface: #FFFFFF;
+  --sunken: #EDEBE5;
+  --rule: #D9D5CC;
+  --rule-strong: #8C877D; /* input borders, 3:1+ on surface */
+  --ink: #1D1C1A;
+  --ink-muted: #5B574F;
+
+  /* Accent */
+  --accent: #2A4580;
+  --accent-hover: #1F3665;
+  --accent-tint: #E6EBF5;
+  --on-accent: #FFFFFF;
+  --focus: #2A4580;
+
+  /* State (text/icon colour + tint background) */
+  --ok: #2D6A3A;        --ok-tint: #E4F0E5;
+  --warn: #8A5700;      --warn-tint: #FAEFD9;
+  --danger: #A3262A;    --danger-tint: #F8E3E2;
+  --dup: #5E4A9A;       --dup-tint: #ECE8F5;
+  --ai: #0F6570;        --ai-tint: #E1F0F1;
+  --idle: #5B574F;      --idle-tint: #EDEBE5;
+
+  /* Elevation (only for floating layers) */
+  --shadow-1: 0 1px 2px rgb(29 28 26 / 0.08), 0 4px 12px rgb(29 28 26 / 0.08);
+  --shadow-2: 0 2px 4px rgb(29 28 26 / 0.10), 0 12px 32px rgb(29 28 26 / 0.16);
+  --scrim: rgb(29 28 26 / 0.40);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #131311; --surface: #1B1A18; --sunken: #232220;
+    --rule: #36342F; --rule-strong: #7A756B;
+    --ink: #ECE9E2; --ink-muted: #A7A195;
+    --accent: #94AEE6; --accent-hover: #B3C6EE; --accent-tint: #1F2A42;
+    --on-accent: #0F1522; --focus: #94AEE6;
+    --ok: #7DC08A; --ok-tint: #1A2A1D;
+    --warn: #E0B25C; --warn-tint: #2E2414;
+    --danger: #F08A86; --danger-tint: #341A19;
+    --dup: #B7A6E6; --dup-tint: #251F36;
+    --ai: #6CC3CC; --ai-tint: #132A2D;
+    --idle: #A7A195; --idle-tint: #232220;
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.35);
+    --shadow-2: 0 2px 4px rgb(0 0 0 / 0.5), 0 12px 32px rgb(0 0 0 / 0.5);
+    --scrim: rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #131311; --surface: #1B1A18; --sunken: #232220;
+  --rule: #36342F; --rule-strong: #7A756B;
+  --ink: #ECE9E2; --ink-muted: #A7A195;
+  --accent: #94AEE6; --accent-hover: #B3C6EE; --accent-tint: #1F2A42;
+  --on-accent: #0F1522; --focus: #94AEE6;
+  --ok: #7DC08A; --ok-tint: #1A2A1D;
+  --warn: #E0B25C; --warn-tint: #2E2414;
+  --danger: #F08A86; --danger-tint: #341A19;
+  --dup: #B7A6E6; --dup-tint: #251F36;
+  --ai: #6CC3CC; --ai-tint: #132A2D;
+  --idle: #A7A195; --idle-tint: #232220;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.35);
+  --shadow-2: 0 2px 4px rgb(0 0 0 / 0.5), 0 12px 32px rgb(0 0 0 / 0.5);
+  --scrim: rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-panel: 0ms; }
+}
