@@ -79,14 +79,14 @@ func Derive(svc catalog.Service, info supervisor.Info, h *health.Result, now tim
 		out.Problem = &Problem{
 			What: svc.Name + " can't start because its program is missing.",
 			Why:  "Part of the installation is missing or was removed, often by antivirus software.",
-			Next: "Run install.ps1 again as administrator. It puts back the missing files and keeps your cases.",
+			Next: "Double-click Setup.exe from the install zip again. It puts back the missing files and keeps your cases.",
 		}
 		return out
 	case info.GaveUp && info.StartErr != "":
 		out.State, out.Detail = Error, "Couldn't start"
 		out.Problem = &Problem{
 			What: svc.Name + " couldn't start.", Why: "Windows reported: " + firstLine(info.StartErr) + ".",
-			Next:      "Try starting it again. If it fails again, download diagnostics and run install.ps1 again.",
+			Next:      "Try starting it again. If it fails again, download diagnostics and double-click Setup.exe from the install zip again.",
 			FixAction: fix, FixLabel: fixLabel,
 		}
 		return out
@@ -164,6 +164,6 @@ func RuntimeProblem(reason string) Problem {
 	return Problem{
 		What: "The app services can't be started.",
 		Why:  reason,
-		Next: "Run install.ps1 again as administrator. It repairs the installation and keeps your cases. This page updates by itself.",
+		Next: "Double-click Setup.exe from the install zip again. It repairs the installation and keeps your cases. This page updates by itself.",
 	}
 }

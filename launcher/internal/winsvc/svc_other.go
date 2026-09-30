@@ -19,7 +19,13 @@ func IsService() bool { return false }
 func Run(_ string, run func(ctx context.Context) error) error { return run(context.Background()) }
 
 // Install is Windows-only.
-func Install(string) error { return errors.New("service install is only available on Windows") }
+func Install(string, string) error { return errors.New("service install is only available on Windows") }
 
 // Uninstall is Windows-only.
 func Uninstall() error { return errors.New("service uninstall is only available on Windows") }
+
+// StopAll is Windows-only.
+func StopAll() (bool, error) { return false, errors.New("services are only available on Windows") }
+
+// Start is Windows-only.
+func Start(string) error { return errors.New("services are only available on Windows") }

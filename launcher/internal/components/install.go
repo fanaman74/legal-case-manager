@@ -67,7 +67,7 @@ const netNext = "Check the internet connection, then try again."
 
 func (m *Manager) installPython(ctx context.Context, progress Progress) error {
 	if _, err := os.Stat(m.requirements()); err != nil {
-		return fail(err, "The app's package list is missing.", "Run install.ps1 again to restore the app folder.")
+		return fail(err, "The app's package list is missing.", "Double-click Setup.exe from the install zip again to restore the app folder.")
 	}
 	pkg, err := m.download(ctx, catalog.Python, "Python", progress)
 	if err != nil {

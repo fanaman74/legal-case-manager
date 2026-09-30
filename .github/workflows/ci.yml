@@ -102,8 +102,11 @@ jobs:
         shell: bash
         run: ./scripts/build.sh windows
       - name: Install
-        shell: powershell   # Windows PowerShell 5.1, what users have
-        run: .\dist\windows\install.ps1 -NoBrowser
+        shell: pwsh
+        run: |
+          # The runner is already an administrator, so Setup.exe doesn't ask Windows for permission.
+          .\dist\windows\Setup.exe setup --no-browser
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Smoke test
         shell: pwsh
         run: .\scripts\ci\windows-smoke.ps1

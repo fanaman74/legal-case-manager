@@ -46,7 +46,7 @@ This replaces the Docker design's container boundary. The trade-off is covered i
 **Decided:** localhost-only by default, LAN as an audited opt-in (fred, 2026-09-29).
 
 **2.4 Authentication.** The launcher cannot rely on the app's database, because the app may be stopped. So it keeps its own tiny credential store:
-- The installer generates a **one-time setup code** and shows it at the end of install (also written to a file only the Windows user can read). Wizard step 1 asks for it. This closes the window where anyone on the machine could claim the Admin account.
+- The installer generates a **one-time setup code** and shows it at the end of install (also written to a file only the Windows user can read). Wizard step 1 asks for it. This closes the window where anyone on the machine could claim the Admin account. Setup.exe (double-clicked, after the Windows permission prompt) opens the Control Center with the code in the address fragment (`#setup=...`), so nobody has to type it. The fragment is never sent over the network; the page removes it from the address bar and history as soon as it reads it, and the code stops working once the Admin account exists. The elevated setup hands the address back to the unelevated Setup.exe through a file in the user's own temp folder, so the browser never runs as administrator.
 - Wizard step 3 creates the Admin account once and provisions it in both the launcher and the app (the launcher stores its own Argon2id hash). Changing the Admin password in the app updates both.
 - Sessions: HttpOnly, Secure, SameSite=Strict cookie, 8-hour idle timeout; CSRF token and Origin check on every state-changing request; login rate limit and lockout after repeated failures. Optional TOTP second factor.
 

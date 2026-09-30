@@ -137,7 +137,7 @@ func Runtime(pythonVersion string, pythonErr, supervisorErr error, supervisorNam
 		c.Next = "Install \"Python and the app's packages\" under Components."
 	case supervisorErr != nil:
 		c.Level, c.Detail = Fail, supervisorErr.Error()
-		c.Next = "Run install.ps1 again as administrator."
+		c.Next = "Double-click Setup.exe from the install zip again."
 	default:
 		c.Level, c.Detail = Pass, pythonVersion+", "+strings.ToLower(supervisorName[:1])+supervisorName[1:]
 	}

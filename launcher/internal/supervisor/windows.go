@@ -28,7 +28,7 @@ func NewWindows(cfg config.Config) (Supervisor, error) { return &Windows{cfg: cf
 // Name implements Supervisor.
 func (w *Windows) Name() string { return "Windows services" }
 
-var errNotRegistered = errors.New("The app services aren't registered with Windows. Run install.ps1 again as administrator.")
+var errNotRegistered = errors.New("The app services aren't registered with Windows. Double-click Setup.exe from the install zip again. It repairs the installation and keeps your cases.")
 
 func (w *Windows) open(id catalog.ServiceID) (*mgr.Mgr, *mgr.Service, error) {
 	s, ok := catalog.Lookup(string(id))

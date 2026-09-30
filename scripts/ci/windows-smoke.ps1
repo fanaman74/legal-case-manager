@@ -1,5 +1,5 @@
 <#
-  End-to-end check of a real Windows install, run by CI after install.ps1.
+  End-to-end check of a real Windows install, run by CI after Setup.exe.
   Signs in with the setup code, waits for the launcher to install every
   component and start every service by itself, reinstalls one component
   through the Control Center API, and checks the security settings the
@@ -91,8 +91,12 @@ Check ([bool]$keyAcl) "the web app can read its own server key"
 $modelsOnData = (Get-Acl "$root\data").Access | Where-Object IdentityReference -eq "NT SERVICE\CaseFiles-models"
 Check (-not $modelsOnData) "the models service has no access to case data"
 
-$rules = Get-NetFirewallRule -Group "Case File Manager"
+$rules = @(Get-NetFirewallRule -DisplayName "Case File Manager*")
 Check ($rules.Count -eq 2) "two firewall rules installed"
+$out = $rules | Where-Object Direction -eq Outbound
+Check ($out.Action -eq "Block" -and ($out | Get-NetFirewallServiceFilter).Service -eq "CaseFiles-worker") "worker blocked from the internet"
+Check (Test-Path "$env:PUBLIC\Desktop\Case File Manager Control Center.url") "desktop shortcut to the Control Center"
+Check (Test-Path "$root\uninstall.cmd") "uninstall.cmd is in the install folder"
 $in = $rules | Where-Object Direction -eq Inbound
 Check ($in.Profile -eq "Private") "web app port open on Private networks only ($($in.Profile))"
 

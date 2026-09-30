@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"syscall"
 	"time"
 
@@ -111,11 +110,7 @@ func ensure(m *mgr.Mgr, name, exe string, c mgr.Config, args ...string) error {
 // NT SERVICE\CaseFiles-<id>, which has no password, can't sign in, and gets
 // only the file permissions the installer grants it. The launcher starts
 // the hosts itself, so they are set to manual start.
-func Install(configPath string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
+func Install(exe, configPath string) error {
 	m, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("connect to the service manager (run as Administrator): %w", err)
@@ -145,6 +140,64 @@ func Install(configPath string) error {
 	return nil
 }
 
+func allNames() []string {
+	names := []string{Name}
+	for _, sv := range catalog.Services {
+		names = append(names, sv.WindowsName())
+	}
+	return names
+}
+
+// stop asks s to stop and waits up to 30 seconds for it.
+func stop(s *mgr.Service) {
+	st, err := s.Control(svc.Stop)
+	if err != nil {
+		return
+	}
+	for i := 0; i < 60 && st.State != svc.Stopped; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if st, err = s.Query(); err != nil {
+			return
+		}
+	}
+}
+
+// StopAll stops the launcher and every app service that is installed. It
+// reports whether any of them were installed.
+func StopAll() (bool, error) {
+	m, err := mgr.Connect()
+	if err != nil {
+		return false, err
+	}
+	defer m.Disconnect()
+	found := false
+	for _, name := range allNames() {
+		s, err := m.OpenService(name)
+		if err != nil {
+			continue
+		}
+		found = true
+		stop(s)
+		s.Close()
+	}
+	return found, nil
+}
+
+// Start starts the named service.
+func Start(name string) error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return err
+	}
+	defer m.Disconnect()
+	s, err := m.OpenService(name)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return s.Start()
+}
+
 // Uninstall stops and removes every Case File Manager service.
 func Uninstall() error {
 	m, err := mgr.Connect()
@@ -152,24 +205,13 @@ func Uninstall() error {
 		return err
 	}
 	defer m.Disconnect()
-	names := []string{Name}
-	for _, sv := range catalog.Services {
-		names = append(names, sv.WindowsName())
-	}
 	var errs []error
-	for _, name := range names {
+	for _, name := range allNames() {
 		s, err := m.OpenService(name)
 		if err != nil {
 			continue
 		}
-		if st, err := s.Control(svc.Stop); err == nil {
-			for i := 0; i < 60 && st.State != svc.Stopped; i++ {
-				time.Sleep(500 * time.Millisecond)
-				if st, err = s.Query(); err != nil {
-					break
-				}
-			}
-		}
+		stop(s)
 		if err := s.Delete(); err != nil {
 			errs = append(errs, fmt.Errorf("remove %s: %w", name, err))
 		}

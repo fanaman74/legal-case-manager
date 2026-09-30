@@ -211,7 +211,7 @@ func (m *Manager) check(c catalog.Component) Status {
 	}
 	want, err := m.stamp(c.ID)
 	if err != nil {
-		st.State, st.Detail = Failed, "The app's package list is missing. Run install.ps1 again to restore the app folder."
+		st.State, st.Detail = Failed, "The app's package list is missing. Double-click Setup.exe from the install zip again to restore the app folder."
 		st.CanInstall = false
 		return st
 	}

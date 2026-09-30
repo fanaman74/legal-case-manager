@@ -564,7 +564,7 @@ func TestAutoRestartAndBrokenInstall(t *testing.T) {
 	}
 
 	h.sup.mu.Lock()
-	h.sup.readyErr = errors.New("The app services aren't registered with Windows. Run install.ps1 again as administrator.")
+	h.sup.readyErr = errors.New("The app services aren't registered with Windows. Double-click Setup.exe from the install zip again. It repairs the installation and keeps your cases.")
 	h.sup.mu.Unlock()
 	h.srv.poller.refresh(context.Background())
 	snap = h.srv.poller.get()

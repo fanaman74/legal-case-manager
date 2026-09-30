@@ -1,6 +1,9 @@
 // Command launcher is the always-on service that serves the Control Center
 // and starts, stops and monitors the Case File Manager services.
 //
+//	launcher                     on Windows, install (what double-clicking Setup.exe does)
+//	launcher setup               install or repair (Windows, needs administrator rights)
+//	launcher uninstall           remove the services, keeping case data (Windows)
 //	launcher run                 run in the foreground
 //	launcher host <service>      run one app service (started by Windows)
 //	launcher service install     register the Windows services (Windows only)
@@ -20,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/fanaman74/legal-case-manager/launcher/internal/audit"
@@ -30,6 +34,7 @@ import (
 	"github.com/fanaman74/legal-case-manager/launcher/internal/procs"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/redact"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/server"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/setup"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/supervisor"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/web"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/winsvc"
@@ -69,9 +74,31 @@ func dispatch(args []string) error {
 		return winsvc.Run(winsvc.Name, func(ctx context.Context) error { return run(ctx, *cfgPath) })
 	}
 	if len(rest) == 0 {
+		// Double-clicking Setup.exe installs; elsewhere this runs the launcher.
+		if runtime.GOOS == "windows" {
+			return setup.DoubleClick()
+		}
 		rest = []string{"run"}
 	}
 	switch rest[0] {
+	case "setup", "uninstall":
+		o := setup.Defaults()
+		sf := flag.NewFlagSet(rest[0], flag.ContinueOnError)
+		sf.StringVar(&o.InstallDir, "install-dir", o.InstallDir, "install folder")
+		sf.BoolVar(&o.Pause, "pause", false, "wait before closing the window")
+		if rest[0] == "setup" {
+			sf.IntVar(&o.Port, "port", o.Port, "Control Center port (this computer only)")
+			sf.IntVar(&o.AppPort, "app-port", o.AppPort, "web app port on the network")
+			sf.BoolVar(&o.NoBrowser, "no-browser", false, "don't open the Control Center")
+			sf.StringVar(&o.Handoff, "handoff", "", "write the Control Center address to this file")
+		}
+		if err := sf.Parse(rest[1:]); err != nil {
+			return err
+		}
+		if rest[0] == "uninstall" {
+			return setup.Uninstall(o)
+		}
+		return setup.Run(o)
 	case "run":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -83,7 +110,11 @@ func dispatch(args []string) error {
 		abs, _ := filepath.Abs(*cfgPath)
 		switch rest[1] {
 		case "install":
-			return winsvc.Install(abs)
+			exe, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			return winsvc.Install(exe, abs)
 		case "uninstall":
 			return winsvc.Uninstall()
 		}
