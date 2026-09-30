@@ -133,8 +133,8 @@ func Runtime(pythonVersion string, pythonErr, supervisorErr error, supervisorNam
 	c := Check{ID: "runtime", Label: "App runtime"}
 	switch {
 	case pythonErr != nil:
-		c.Level, c.Detail = Fail, "Python isn't installed in the app folder."
-		c.Next = "Run install.ps1 again as administrator. It installs Python for the app and keeps your cases."
+		c.Level, c.Detail = Fail, "Python isn't installed yet."
+		c.Next = "Install \"Python and the app's packages\" under Components."
 	case supervisorErr != nil:
 		c.Level, c.Detail = Fail, supervisorErr.Error()
 		c.Next = "Run install.ps1 again as administrator."
@@ -149,7 +149,7 @@ func OCR(version string, err error) Check {
 	c := Check{ID: "ocr", Label: "OCR"}
 	if err != nil {
 		c.Level, c.Detail = Fail, "Tesseract OCR isn't installed or won't run."
-		c.Next = "Run install.ps1 again as administrator. Scanned PDFs can't be read until OCR works."
+		c.Next = "Install Tesseract OCR under Components. Scanned PDFs can't be read until OCR works."
 		return c
 	}
 	c.Level, c.Detail = Pass, "Installed ("+strings.TrimPrefix(version, "tesseract ")+")"
@@ -161,7 +161,7 @@ func PST(version string, err error) Check {
 	c := Check{ID: "pst", Label: "PST parser"}
 	if err != nil {
 		c.Level, c.Detail = Fail, "The Outlook PST library isn't installed or won't load."
-		c.Next = "Run install.ps1 again as administrator. PST files can't be opened until it works."
+		c.Next = "Install \"Python and the app's packages\" under Components. PST files can't be opened until it works."
 		return c
 	}
 	c.Level, c.Detail = Pass, "Installed (libpff "+version+")"
@@ -183,19 +183,6 @@ func Port(port int, heldByApp bool) Check {
 	}
 	ln.Close()
 	c.Level, c.Detail = Pass, "Free"
-	return c
-}
-
-// Model checks that the embedding model files are on disk.
-func Model(modelsDir, model string) Check {
-	c := Check{ID: "model", Label: "Embedding model"}
-	manifest := filepath.Join(modelsDir, "manifests", "registry.ollama.ai", "library", model)
-	if _, err := os.Stat(manifest); err == nil {
-		c.Level, c.Detail = Pass, model+" is downloaded"
-		return c
-	}
-	c.Level, c.Detail = Pending, model+" isn't downloaded yet."
-	c.Next = "The setup wizard downloads it in step 4."
 	return c
 }
 

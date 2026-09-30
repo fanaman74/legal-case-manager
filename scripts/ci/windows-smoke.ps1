@@ -1,7 +1,9 @@
 <#
   End-to-end check of a real Windows install, run by CI after install.ps1.
-  Signs in with the setup code, starts every service through the Control
-  Center API, and checks the security settings the installer applies.
+  Signs in with the setup code, waits for the launcher to install every
+  component and start every service by itself, reinstalls one component
+  through the Control Center API, and checks the security settings the
+  installer applies.
 #>
 $ErrorActionPreference = "Stop"
 $root = "C:\CaseFiles"
@@ -37,12 +39,27 @@ function Show($snap) {
 $csrf = (Post "/api/session/setup-code" @{ code = $code }).csrf
 Check ([bool]$csrf) "signed in with the setup code"
 
-Post "/api/actions" @{ action = "stack.start_all" } $csrf | Out-Null
-$snap = WaitOp 600
+# The launcher installs Python, Tesseract, Ollama and the embedding model by
+# itself on first start, then starts every service. Nobody presses a button.
+$snap = WaitOp 2700
 Show $snap
+$snap.components | Format-Table name, state, version, detail | Out-String | Write-Host
 $op = $snap.operations | Select-Object -First 1
-Check ($op.state -eq "succeeded") "Start all succeeded ($($op.message))"
+Check ($op.action -eq "components.install_missing" -and $op.actor -eq "launcher") "the launcher started the install by itself ($($op.action) by $($op.actor))"
+Check ($op.state -eq "succeeded") "first install succeeded ($($op.message))"
+foreach ($c in $snap.components) { Check ($c.state -eq "installed") "$($c.name) is installed ($($c.detail))" }
 foreach ($s in $snap.services) { Check ($s.state -eq "running") "$($s.name) is running" }
+
+# Reinstalling from the Control Center stops the service using it and starts
+# it again. The verified download is reused.
+Post "/api/actions" @{ action = "component.install"; component = "ollama" } $csrf | Out-Null
+$snap = WaitOp 600
+$op = $snap.operations | Select-Object -First 1
+Check ($op.action -eq "component.install" -and $op.state -eq "succeeded") "reinstalling Ollama from the Control Center worked ($($op.message))"
+Check (($snap.services | Where-Object id -eq "models").state -eq "running") "Local AI models is running again after the reinstall"
+# Downloads are kept where only Administrators and SYSTEM can reach them.
+$acl = (Get-Acl "$root\launcher\downloads").Access | ForEach-Object { $_.IdentityReference.Value }
+Check (-not ($acl | Where-Object { $_ -like "NT SERVICE\*" -or $_ -like "*Users*" })) "downloads folder is Administrators and SYSTEM only ($($acl -join ', '))"
 Start-Sleep -Seconds 65   # tool checks refresh once a minute
 $snap = Status
 foreach ($id in @("runtime", "ocr", "pst", "cert", "audit")) {

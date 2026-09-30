@@ -20,6 +20,9 @@ func TestParseAcceptsEveryAllowListedShape(t *testing.T) {
 		`{"action":"launcher.set_lan_binding","enabled":true}`:  catalog.SetLANBinding,
 		`{"action":"launcher.set_lan_binding","enabled":false}`: catalog.SetLANBinding,
 		"  {\"action\":\"stack.start_all\"}\n":                  catalog.StackStartAll,
+		`{"action":"component.install","component":"python"}`:   catalog.ComponentInstall,
+		`{"action":"component.install","component":"model"}`:    catalog.ComponentInstall,
+		`{"action":"components.install_missing"}`:               catalog.InstallMissing,
 	}
 	for body, want := range cases {
 		got, err := Parse(strings.NewReader(body))
@@ -65,6 +68,16 @@ func TestParseRejects(t *testing.T) {
 		`{"action":"service.start","service":"api","command":"sh"}`,
 		`{"action":"service.start","service":"api","enabled":true}`,
 		`{"action":"stack.start_all","service":"api"}`,
+		`{"action":"component.install"}`,
+		`{"action":"component.install","component":""}`,
+		`{"action":"component.install","component":"Python"}`,
+		`{"action":"component.install","component":"docker"}`,
+		`{"action":"component.install","component":"api"}`,
+		`{"action":"component.install","component":"python","url":"https://example.com/x.exe"}`,
+		`{"action":"component.install","component":"python","service":"api"}`,
+		`{"action":"component.install","service":"api"}`,
+		`{"action":"components.install_missing","component":"python"}`,
+		`{"action":"service.start","service":"api","component":"python"}`,
 		`{"action":"stack.start_all","image":"alpine"}`,
 		`{"action":"launcher.set_lan_binding"}`,
 		`{"action":"launcher.set_lan_binding","enabled":"yes"}`,
@@ -91,6 +104,9 @@ func TestSetupScope(t *testing.T) {
 		catalog.StackStartAll:  true,
 		catalog.ServiceStart:   true,
 		catalog.ServiceRestart: true,
+		// The wizard installs missing components before the Admin exists.
+		catalog.ComponentInstall: true,
+		catalog.InstallMissing:   true,
 	}
 	for _, a := range catalog.Actions {
 		r := Request{Action: a.Name}

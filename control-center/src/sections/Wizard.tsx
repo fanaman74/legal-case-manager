@@ -23,7 +23,7 @@ export function Wizard({
   const done = steps.filter((s) => s.state === "done").length;
 
   if (collapsed && !expanded) {
-    const attention = steps.slice(0, 3).find((s) => s.state !== "done");
+    const attention = steps.slice(0, 4).find((s) => s.state !== "done");
     return (
       <section id="setup" className={`setup-summary${attention ? " setup-summary--attention" : ""}`} aria-label="Setup">
         <Icon name={attention ? "warn" : "ok"} />
@@ -95,6 +95,7 @@ function Step({
       {showBody && (
         <div className="step__body">
           {step.id === "prerequisites" && <Prerequisites snap={snap} />}
+          {step.id === "components" && <InstallComponents snap={snap} run={run} />}
           {step.id === "services" && <StartServices snap={snap} run={run} />}
           {step.id === "admin" && session.state === "setup" && <CreateAdmin onSession={onSession} />}
         </div>
@@ -104,7 +105,7 @@ function Step({
 }
 
 function Prerequisites({ snap }: { snap: Snapshot }) {
-  const rows = snap.checks.filter((c) => ["runtime", "disk", "port"].includes(c.id));
+  const rows = snap.checks.filter((c) => ["disk", "port"].includes(c.id));
   return (
     <>
       <ul className="mini-checks">
@@ -124,13 +125,44 @@ function Prerequisites({ snap }: { snap: Snapshot }) {
   );
 }
 
+function InstallComponents({ snap, run }: { snap: Snapshot; run: RunAction }) {
+  const op = snap.operations.find((o) => o.state === "running");
+  const installing = op && (op.action === "component.install" || op.action === "components.install_missing");
+  const failed = snap.wizard.find((s) => s.id === "components")?.state === "failed";
+  return (
+    <>
+      <ul className="mini-checks">
+        {snap.components.map((c) => {
+          const [tone, icon, label] =
+            c.state === "installed" ? checkIcon.pass : c.state === "failed" ? checkIcon.fail : c.state === "installing" ? (["progress", "progress", "Installing"] as const) : checkIcon.pending;
+          return (
+            <li key={c.id}>
+              <span className={`tone--${tone}`}><Icon name={icon} label={label} /></span>
+              <span className="mini-checks__label">{c.name}</span>
+              <span className="mini-checks__detail">{c.detail}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="step__action">
+        <Button variant="primary" icon={installing ? "progress" : "download"} busy={!!installing} disabled={!!op} onClick={() => void run("components.install_missing")}>
+          {installing ? "Installing" : failed ? "Try again" : "Install everything"}
+        </Button>
+        <span className="hint">
+          {installing ? "This carries on if you close the page. The services start by themselves when it's done." : "The launcher installs these by itself when it starts. Press the button to start now."}
+        </span>
+      </div>
+    </>
+  );
+}
+
 function StartServices({ snap, run }: { snap: Snapshot; run: RunAction }) {
   const op = snap.operations.find((o) => o.state === "running");
   const running = snap.services.filter((s) => s.state === "running").length;
   return (
     <div className="step__action">
       <Button variant="primary" icon={op ? "progress" : "play"} onClick={() => void run("stack.start_all")} busy={!!op} disabled={!snap.runtime.ok}>
-        {op ? (op.action.endsWith("stop") || op.action.endsWith("stop_all") ? "Stopping" : "Starting services") : snap.wizard[1]?.state === "failed" ? "Try again" : "Start all services"}
+        {op ? (op.action.endsWith("stop") || op.action.endsWith("stop_all") ? "Stopping" : "Starting services") : snap.wizard.find((s) => s.id === "services")?.state === "failed" ? "Try again" : "Start all services"}
       </Button>
       <span className="hint" aria-live="polite">{running} of {snap.services.length} running</span>
       {!snap.runtime.ok && <span className="hint">Repair the installation first. See the message at the top of the page.</span>}

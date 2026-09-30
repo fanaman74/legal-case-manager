@@ -19,6 +19,7 @@ import (
 	"github.com/fanaman74/legal-case-manager/launcher/internal/audit"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/auth"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/components"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/config"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/health"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/procs"
@@ -104,12 +105,83 @@ func (f *fakeProber) Probe(_ context.Context, id catalog.ServiceID) health.Resul
 	return health.Result{OK: true, Version: "0.2.0", At: time.Now()}
 }
 
+// fakeInstaller pretends to install components. Everything starts installed
+// unless a test marks it missing.
+type fakeInstaller struct {
+	mu        sync.Mutex
+	missing   map[catalog.ComponentID]bool
+	failWith  map[catalog.ComponentID]error
+	installed []catalog.ComponentID
+	// block, when set, holds each install until a value arrives.
+	block chan struct{}
+	// during records the supervisor calls made before each install ran.
+	sup    *fakeSupervisor
+	during map[catalog.ComponentID][]string
+}
+
+func (f *fakeInstaller) Check() []components.Status {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []components.Status
+	for _, c := range catalog.Components {
+		st := components.Status{ID: c.ID, Name: c.Name, State: components.Installed, CanInstall: true, Detail: "Installed."}
+		if f.missing[c.ID] {
+			st.State, st.Detail = components.Missing, "Not installed yet."
+		}
+		out = append(out, st)
+	}
+	return out
+}
+
+func (f *fakeInstaller) Needed() []catalog.ComponentID {
+	var out []catalog.ComponentID
+	for _, st := range f.Check() {
+		if st.State != components.Installed {
+			out = append(out, st.ID)
+		}
+	}
+	return out
+}
+
+func (f *fakeInstaller) Install(ctx context.Context, id catalog.ComponentID, progress components.Progress) error {
+	progress("Downloading " + string(id) + ": 50% of 1.0 GB.")
+	if f.block != nil {
+		select {
+		case <-f.block:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.during == nil {
+		f.during = map[catalog.ComponentID][]string{}
+	}
+	f.during[id] = f.sup.callList()
+	if err := f.failWith[id]; err != nil {
+		return err
+	}
+	f.installed = append(f.installed, id)
+	delete(f.missing, id)
+	return nil
+}
+
+func (f *fakeInstaller) setMissing(ids ...catalog.ComponentID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.missing = map[catalog.ComponentID]bool{}
+	for _, id := range ids {
+		f.missing[id] = true
+	}
+}
+
 type harness struct {
 	t      *testing.T
 	srv    *Server
 	h      http.Handler
 	sup    *fakeSupervisor
 	prober *fakeProber
+	comps  *fakeInstaller
 	code   string
 	cfg    config.Config
 }
@@ -129,8 +201,9 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	sup, prober := newFakeSupervisor(), &fakeProber{unhealthy: map[catalog.ServiceID]bool{}}
+	comps := &fakeInstaller{sup: sup, missing: map[catalog.ComponentID]bool{}, failWith: map[catalog.ComponentID]error{}}
 	srv := New(Options{
-		Config: cfg, Auth: store, Audit: al, Supervisor: sup, Prober: prober,
+		Config: cfg, Auth: store, Audit: al, Supervisor: sup, Prober: prober, Components: comps,
 		Web: fstest.MapFS{"index.html": {Data: []byte("<!doctype html>cc")}},
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
@@ -138,7 +211,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	srv.poller.refresh(context.Background())
-	return &harness{t: t, srv: srv, h: srv.Handler(), sup: sup, prober: prober, code: code, cfg: cfg}
+	return &harness{t: t, srv: srv, h: srv.Handler(), sup: sup, prober: prober, comps: comps, code: code, cfg: cfg}
 }
 
 type client struct {
@@ -444,7 +517,7 @@ func TestStatusAndLogs(t *testing.T) {
 	if snap.Services[0].Usage == nil || snap.Services[0].Usage.MemoryBytes == 0 {
 		t.Errorf("running service should report memory: %+v", snap.Services[0].Usage)
 	}
-	if len(snap.Wizard) != 7 || snap.Wizard[2].State != StepDone {
+	if len(snap.Wizard) != 7 || snap.Wizard[1].State != StepDone || snap.Wizard[3].State != StepDone {
 		t.Fatalf("wizard: %+v", snap.Wizard)
 	}
 
@@ -497,5 +570,196 @@ func TestAutoRestartAndBrokenInstall(t *testing.T) {
 	snap = h.srv.poller.get()
 	if snap.Runtime.OK || snap.Runtime.Problem == nil || snap.Wizard[0].State != StepFailed {
 		t.Fatalf("broken install not reported: %+v %+v", snap.Runtime, snap.Wizard[0])
+	}
+}
+
+func auditActions(t *testing.T, h *harness) []string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(h.cfg.LauncherDir(), "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var e audit.Entry
+		if json.Unmarshal([]byte(line), &e) == nil {
+			out = append(out, e.Actor+" "+e.Action+" "+e.Target+" "+e.Outcome)
+		}
+	}
+	return out
+}
+
+func contains(list []string, want string) bool {
+	for _, x := range list {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestInstallComponentStopsAndRestartsItsServices(t *testing.T) {
+	h := newHarness(t)
+	_ = h.cfg.SaveState(config.State{Initialized: true})
+	c := h.admin()
+	for _, id := range []catalog.ServiceID{catalog.API, catalog.Worker, catalog.Models} {
+		_ = h.sup.Start(context.Background(), id)
+	}
+	h.comps.setMissing(catalog.Python)
+
+	w := c.do("POST", "/api/actions", `{"action":"component.install","component":"python"}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("install: %d %s", w.Code, w.Body)
+	}
+	op := h.waitOp()
+	if op.State != OpSucceeded {
+		t.Fatalf("op: %+v", op)
+	}
+	// The web app and worker use Python, so they were stopped first and
+	// started again afterwards. The models service was left alone.
+	during := strings.Join(h.comps.during[catalog.Python], ",")
+	if !strings.HasSuffix(during, "stop:api,stop:worker") {
+		t.Fatalf("calls before the install ran: %s", during)
+	}
+	calls := strings.Join(h.sup.callList(), ",")
+	if !strings.HasSuffix(calls, "stop:api,stop:worker,start:api,start:worker") || strings.Contains(calls, "stop:models") {
+		t.Fatalf("supervisor calls: %s", calls)
+	}
+	if !contains(auditActions(t, h), "fred component.install python succeeded") {
+		t.Fatalf("audit: %v", auditActions(t, h))
+	}
+}
+
+func TestInstallFailureIsShownAndServicesComeBack(t *testing.T) {
+	h := newHarness(t)
+	_ = h.cfg.SaveState(config.State{Initialized: true})
+	c := h.admin()
+	_ = h.sup.Start(context.Background(), catalog.Models)
+	h.comps.setMissing(catalog.Ollama)
+	h.comps.failWith[catalog.Ollama] = &components.Error{What: "Ollama couldn't be downloaded.", Next: "Check the internet connection, then try again."}
+
+	if w := c.do("POST", "/api/actions", `{"action":"component.install","component":"ollama"}`); w.Code != http.StatusAccepted {
+		t.Fatalf("install: %d %s", w.Code, w.Body)
+	}
+	op := h.waitOp()
+	if op.State != OpFailed || op.Message != "Ollama couldn't be downloaded. Check the internet connection, then try again." {
+		t.Fatalf("op: %+v", op)
+	}
+	h.srv.poller.refresh(context.Background())
+	var ollama components.Status
+	for _, st := range h.srv.poller.get().Components {
+		if st.ID == catalog.Ollama {
+			ollama = st
+		}
+	}
+	if ollama.State != components.Failed || !strings.Contains(ollama.Detail, "internet connection") {
+		t.Fatalf("status after failure: %+v", ollama)
+	}
+	if calls := strings.Join(h.sup.callList(), ","); !strings.HasSuffix(calls, "stop:models,start:models") {
+		t.Fatalf("models service not restarted: %s", calls)
+	}
+	if !contains(auditActions(t, h), "fred component.install ollama failed") {
+		t.Fatalf("audit: %v", auditActions(t, h))
+	}
+}
+
+func TestFirstStartInstallsEverythingAndStartsAllServices(t *testing.T) {
+	h := newHarness(t)
+	h.comps.setMissing(catalog.Python, catalog.Tesseract, catalog.Ollama, catalog.Model)
+
+	h.srv.autoSetup(context.Background())
+
+	op := h.waitOp()
+	if op.State != OpSucceeded || op.Actor != "launcher" {
+		t.Fatalf("op: %+v", op)
+	}
+	got := h.comps.installed
+	if len(got) != 4 || got[0] != catalog.Python || got[3] != catalog.Model {
+		t.Fatalf("installed in order %v", got)
+	}
+	// The models service is started before the embedding model downloads.
+	if during := h.comps.during[catalog.Model]; !contains(during, "start:models") {
+		t.Fatalf("models not running for the model download: %v", during)
+	}
+	for _, svc := range catalog.Services {
+		if in, _ := h.sup.Info(context.Background(), svc.ID); in.Phase != supervisor.Running {
+			t.Errorf("%s not running after the first install", svc.ID)
+		}
+	}
+	st := h.cfg.LoadState()
+	if !st.Initialized || len(st.Wanted) != len(catalog.Services) {
+		t.Fatalf("state after first install: %+v", st)
+	}
+	actions := auditActions(t, h)
+	for _, want := range []string{"launcher components.install_missing  requested", "launcher component.install model succeeded", "launcher stack.start_all  succeeded"} {
+		if !contains(actions, want) {
+			t.Errorf("audit lacks %q: %v", want, actions)
+		}
+	}
+}
+
+func TestLaterStartsOnlyStartWantedServices(t *testing.T) {
+	h := newHarness(t)
+	_ = h.cfg.SaveState(config.State{Initialized: true, Wanted: []string{"api"}})
+	h.srv.autoSetup(context.Background())
+	h.waitOp()
+	if calls := strings.Join(h.sup.callList(), ","); calls != "start:api" {
+		t.Fatalf("calls: %s", calls)
+	}
+}
+
+func TestSetupCodeHolderCanInstall(t *testing.T) {
+	h := newHarness(t)
+	_ = h.cfg.SaveState(config.State{Initialized: true})
+	c := h.client()
+	if w := c.do("POST", "/api/session/setup-code", `{"code":"`+h.code+`"}`); w.Code != 200 {
+		t.Fatalf("setup code: %d", w.Code)
+	}
+	h.comps.setMissing(catalog.Tesseract)
+	if w := c.do("POST", "/api/actions", `{"action":"components.install_missing"}`); w.Code != http.StatusAccepted {
+		t.Fatalf("install missing during setup: %d %s", w.Code, w.Body)
+	}
+	if op := h.waitOp(); op.State != OpSucceeded {
+		t.Fatalf("op: %+v", op)
+	}
+	if len(h.comps.installed) != 1 || h.comps.installed[0] != catalog.Tesseract {
+		t.Fatalf("installed %v", h.comps.installed)
+	}
+}
+
+func TestOtherActionsWaitForAnInstall(t *testing.T) {
+	h := newHarness(t)
+	_ = h.cfg.SaveState(config.State{Initialized: true})
+	c := h.admin()
+	h.comps.setMissing(catalog.Ollama)
+	h.comps.block = make(chan struct{})
+	if w := c.do("POST", "/api/actions", `{"action":"component.install","component":"ollama"}`); w.Code != http.StatusAccepted {
+		t.Fatalf("install: %d", w.Code)
+	}
+	// Wait until the install reports progress, then check the overlay.
+	deadline := time.Now().Add(2 * time.Second)
+	var ollama components.Status
+	for time.Now().Before(deadline) {
+		h.srv.poller.refresh(context.Background())
+		for _, st := range h.srv.poller.get().Components {
+			if st.ID == catalog.Ollama {
+				ollama = st
+			}
+		}
+		if strings.Contains(ollama.Detail, "50%") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ollama.State != components.Installing || !strings.Contains(ollama.Detail, "50%") {
+		t.Fatalf("while installing: %+v", ollama)
+	}
+	w := c.do("POST", "/api/actions", `{"action":"stack.start_all"}`)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "50%") {
+		t.Fatalf("start all during install: %d %s", w.Code, w.Body)
+	}
+	close(h.comps.block)
+	if op := h.waitOp(); op.State != OpSucceeded {
+		t.Fatalf("op: %+v", op)
 	}
 }

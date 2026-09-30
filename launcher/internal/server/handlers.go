@@ -399,6 +399,25 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Action == catalog.ComponentInstall || req.Action == catalog.InstallMissing {
+		var ids []catalog.ComponentID
+		if req.Component != nil {
+			ids = []catalog.ComponentID{req.Component.ID}
+		} else {
+			ids = s.comps.Needed()
+		}
+		op, err := s.startInstall(req.Action, ids, sess.User, netguard.ClientIP(r).String())
+		var busy errBusy
+		if errors.As(err, &busy) {
+			_ = s.record(r, sess.User, string(req.Action), req.Target(), audit.Denied, "another action running")
+			writeError(w, http.StatusConflict, "Another action is still running: "+busy.op.Message+" Wait for it to finish, then try again.")
+			return
+		}
+		s.poller.refresh(r.Context())
+		writeJSON(w, http.StatusAccepted, op)
+		return
+	}
+
 	var ids []catalog.ServiceID
 	label := "All services"
 	var svcID catalog.ServiceID

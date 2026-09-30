@@ -378,3 +378,8 @@ a:hover { color: var(--accent-hover); }
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
 html { scroll-behavior: smooth; }
+
+/* Components */
+.components__version { margin-left: var(--space-2); font-size: var(--text-sm); color: var(--ink-muted); font-weight: normal; }
+#components .hint { margin-top: var(--space-3); }
+#components .opstrip { margin-bottom: var(--space-3); }

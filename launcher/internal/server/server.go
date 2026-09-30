@@ -52,6 +52,10 @@ type Server struct {
 	ops    *operations
 	poller *poller
 
+	comps    Installer
+	compMu   sync.Mutex
+	compFail map[catalog.ComponentID]string
+
 	certMu sync.Mutex
 	cert   *tls.Certificate
 
@@ -69,8 +73,11 @@ type Options struct {
 	Supervisor supervisor.Supervisor
 	// Prober defaults to the real health checks.
 	Prober Prober
-	Web    fs.FS
-	Log    *slog.Logger
+	// Components checks and installs Python, Tesseract, Ollama and the
+	// embedding model.
+	Components Installer
+	Web        fs.FS
+	Log        *slog.Logger
 }
 
 // New builds a server. Call Run to start listening.
@@ -85,11 +92,16 @@ func New(o Options) *Server {
 		log:       o.Log,
 		now:       time.Now,
 		ops:       &operations{},
+		comps:     o.Components,
+		compFail:  map[catalog.ComponentID]string{},
 		listeners: map[string]*http.Server{},
 		bgCtx:     context.Background(),
 	}
 	if s.prober == nil {
 		s.prober = health.New(o.Config)
+	}
+	if s.comps == nil {
+		s.comps = noComponents{}
 	}
 	s.poller = newPoller(s)
 	s.handler = s.routes()
@@ -263,7 +275,7 @@ func (s *Server) startWanted(ctx context.Context) {
 func (s *Server) Run(ctx context.Context) error {
 	s.bgCtx = ctx
 	go s.poller.run(ctx)
-	go s.startWanted(ctx)
+	go s.autoSetup(ctx)
 	if err := s.reconcileListeners(); err != nil {
 		s.lnMu.Lock()
 		n := len(s.listeners)

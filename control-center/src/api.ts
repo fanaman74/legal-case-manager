@@ -11,7 +11,21 @@ export type ActionName =
   | "stack.stop_all"
   | "diagnostics.bundle"
   | "cert.renew"
-  | "launcher.set_lan_binding";
+  | "launcher.set_lan_binding"
+  | "component.install"
+  | "components.install_missing";
+
+export type ComponentState = "installed" | "missing" | "outdated" | "installing" | "failed";
+
+export interface Component {
+  id: string;
+  name: string;
+  purpose: string;
+  state: ComponentState;
+  version?: string;
+  detail: string;
+  canInstall: boolean;
+}
 
 export interface Problem {
   what: string;
@@ -48,6 +62,7 @@ export interface Operation {
   id: string;
   action: ActionName;
   service?: string;
+  component?: string;
   actor: string;
   state: "running" | "succeeded" | "failed";
   message: string;
@@ -68,6 +83,7 @@ export interface Snapshot {
   launcherVersion: string;
   runtime: { ok: boolean; name: string; problem?: Problem };
   services: Service[];
+  components: Component[];
   checks: Check[];
   lan: { controlCenterOnLan: boolean; appUrls: string[]; controlCenterUrls: string[] };
   operations: Operation[];
@@ -160,7 +176,7 @@ export const api = {
   login: (username: string, password: string) => json<Session>("POST", "/api/session/login", { username, password }),
   logout: () => json<void>("POST", "/api/session/logout", {}),
   status: () => json<Snapshot>("GET", "/api/status"),
-  action: (action: ActionName, extra: { service?: string; enabled?: boolean } = {}) =>
+  action: (action: ActionName, extra: { service?: string; component?: string; enabled?: boolean } = {}) =>
     json<Operation | { message: string }>("POST", "/api/actions", { action, ...extra }),
   logs: (service: string, tail = 1000) =>
     json<{ service: string; lines: LogLine[] }>("GET", `/api/logs?service=${encodeURIComponent(service)}&tail=${tail}`),

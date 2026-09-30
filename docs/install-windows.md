@@ -1,12 +1,12 @@
 # Installing Case File Manager on Windows
 
-You do this once. After it, everything happens in your browser. No Docker is needed.
+You run one script once, because Windows needs an administrator to register the launcher. After that, everything happens in your browser, including installing Python, OCR and the local AI. No Docker is needed.
 
 ## Before you start
 
 - Windows 10 or 11, 64-bit, signed in with an administrator account.
 - At least 20 GB free on the drive that will hold case files.
-- An internet connection for the install. It downloads Python, Tesseract OCR and Ollama (about 2 GB in total) from their official release pages. Every download is checked against a fixed checksum before it is used.
+- An internet connection for the first start. The launcher downloads Python, Tesseract OCR, Ollama and the embedding model (about 3 GB in total) from their official sources. Every program download is checked against a fixed checksum before it is used.
 - **Recommended:** BitLocker turned on for that drive. The app stores originals, Markdown and search indexes as ordinary files.
 
 ## Install
@@ -26,11 +26,15 @@ You do this once. After it, everything happens in your browser. No Docker is nee
 
    Options: `-InstallDir D:\CaseFiles`, `-AppPort 443`, `-ControlCenterPort 8443`.
 
-4. The first install downloads about 2 GB. When it finishes, the script shows a **setup code** and opens the Control Center at `https://localhost:8443`.
+4. The script takes about a minute. It shows a **setup code** and opens the Control Center at `https://localhost:8443`.
 5. Your browser warns about the certificate. See [trust-certificate.md](trust-certificate.md) to trust it once, or continue past the warning on this computer for now.
-6. Enter the setup code and follow the setup wizard.
+6. Enter the setup code. The **Components** section shows the launcher downloading and installing Python, Tesseract OCR, Ollama and the embedding model. When they're done, it starts every service by itself. Then create your Admin account in the setup wizard.
 
-Run `install.ps1` again at any time to repair or upgrade. It keeps your cases, Admin account and audit log.
+## Checking and repairing components
+
+The Control Center's **Components** section lists each program the app needs, its version and whether it's installed. Use **Install**, **Update** or **Reinstall** on a row, or **Install what's missing** for all of them. The launcher stops the services that use a program while it's replaced and starts them again afterwards. It also installs anything missing each time it starts. Every install is recorded in the audit log.
+
+Run `install.ps1` again to upgrade the launcher itself. It keeps your cases, Admin account and audit log. If the new version pins newer programs, the launcher updates them when it starts.
 
 ## What gets installed
 
@@ -39,7 +43,7 @@ Run `install.ps1` again at any time to repair or upgrade. It keeps your cases, A
 | `C:\CaseFiles\launcher.exe` | The launcher and the service host | Administrators, SYSTEM and the three app services |
 | `C:\CaseFiles\app\`, `runtime\` | The web app, Python and Ollama | Administrators, SYSTEM and the three app services |
 | `C:\Program Files\Tesseract-OCR\` | Tesseract OCR (its installer always uses this folder) | Everyone can read; only administrators can change it |
-| `C:\CaseFiles\launcher\` | Admin password hash, audit log, launcher settings and log | Administrators and SYSTEM only |
+| `C:\CaseFiles\launcher\` | Admin password hash, audit log, launcher settings and log, verified downloads | Administrators and SYSTEM only |
 | `C:\CaseFiles\certs\` | Local certificate authority and the HTTPS certificate | Administrators and SYSTEM. The web app can read only its own certificate and key. |
 | `C:\CaseFiles\data\` | Case files, database, search index, AI models | Administrators, SYSTEM, the web app and the worker. The models service can only reach `data\models`. |
 | `C:\CaseFiles\logs\` | One folder per service | Administrators and SYSTEM. Each service can write only its own folder. |

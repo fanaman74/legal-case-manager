@@ -4,26 +4,26 @@
 
 .DESCRIPTION
   Run from the folder produced by `scripts/build.sh windows` (or the install
-  zip), in PowerShell opened with "Run as administrator". After this,
-  everything is done in the browser at https://localhost:8443.
+  zip), in PowerShell opened with "Run as administrator". This is only needed
+  once: Windows requires an administrator to register the launcher as a
+  service. Everything else happens in the Control Center at
+  https://localhost:8443, which checks and installs Python, Tesseract OCR,
+  Ollama and the embedding model by itself, then starts every service.
 
-  Running it again repairs or upgrades an installation and keeps your cases.
+  Running it again repairs or upgrades the launcher and keeps your cases.
 
   What it does:
     1. Checks this is a 64-bit Windows with enough disk space.
     2. Stops the services if they are already installed.
     3. Copies the launcher and the app into C:\CaseFiles (or -InstallDir).
-    4. Downloads Python, Tesseract OCR and Ollama from their official
-       release pages, checks each file's SHA-256 against runtimes.json, and
-       installs the app's Python packages (each one hash-checked too).
-    5. Registers the Windows services. The launcher runs as SYSTEM; each app
+    4. Registers the Windows services. The launcher runs as SYSTEM; each app
        service runs under its own restricted account (NT SERVICE\CaseFiles-api,
        -worker and -models) with no password and no admin rights.
-    6. Creates the certificates and the one-time setup code.
-    7. Sets folder permissions so each service can only reach what it needs.
-    8. Opens the web app port on Private networks only, and blocks the
+    5. Creates the certificates and the one-time setup code.
+    6. Sets folder permissions so each service can only reach what it needs.
+    7. Opens the web app port on Private networks only, and blocks the
        background worker from the internet.
-    9. Starts the launcher and shows the setup code.
+    8. Starts the launcher and shows the setup code.
 #>
 [CmdletBinding()]
 param(
@@ -35,10 +35,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$ProgressPreference = "SilentlyContinue"   # the progress bar makes downloads very slow in Windows PowerShell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$ProgressPreference = "SilentlyContinue"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$steps = 9
+$steps = 8
 
 function Step($n, $text) { Write-Host ""; Write-Host "[$n/$steps] $text" -ForegroundColor Cyan }
 function Fail($what, $next) {
@@ -63,12 +62,11 @@ $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
   Fail "this script needs administrator rights." "Right-click PowerShell, choose 'Run as administrator', and run install.ps1 again."
 }
-foreach ($f in @("launcher.exe", "runtimes.json", "app\requirements-windows.txt")) {
+foreach ($f in @("launcher.exe", "app\requirements-windows.txt")) {
   if (-not (Test-Path (Join-Path $here $f))) {
     Fail "$f isn't next to this script." "Extract the whole install zip, then run install.ps1 from the extracted folder."
   }
 }
-$runtimes = Get-Content -Raw (Join-Path $here "runtimes.json") | ConvertFrom-Json
 
 # --- 1. Prerequisites -------------------------------------------------------
 Step 1 "Checking this computer"
@@ -108,8 +106,7 @@ $dataDir = Join-Path $InstallDir "data"
 $logDir = Join-Path $InstallDir "logs"
 $certsDir = Join-Path $InstallDir "certs"
 $stateDir = Join-Path $InstallDir "launcher"
-$downloads = Join-Path $InstallDir "downloads"
-foreach ($d in @($InstallDir, $runtime, $dataDir, (Join-Path $dataDir "models"), (Join-Path $dataDir ".run"), $logDir, $certsDir, $stateDir, $downloads)) {
+foreach ($d in @($InstallDir, $runtime, $dataDir, (Join-Path $dataDir "models"), (Join-Path $dataDir ".run"), $logDir, $certsDir, $stateDir)) {
   New-Item -ItemType Directory -Force -Path $d | Out-Null
 }
 Copy-Item (Join-Path $here "launcher.exe") $InstallDir -Force
@@ -117,109 +114,12 @@ if (Test-Path $appDir) { Remove-Item -Recurse -Force $appDir }
 Copy-Item (Join-Path $here "app") $appDir -Recurse -Force
 Copy-Item (Join-Path $here "uninstall.ps1") $InstallDir -Force
 
-# --- 4. Runtimes ------------------------------------------------------------
-Step 4 "Downloading and checking Python, Tesseract OCR and Ollama (large downloads the first time)"
+# Python lives here once the launcher has installed it; the firewall rule
+# below names it.
+$python = Join-Path $runtime "python\python.exe"
 
-function Get-Verified($name) {
-  $r = $runtimes.$name
-  if (-not $r.sha256) {
-    Fail "runtimes.json has no checksum for $name." "Use an official install zip. This one wasn't finished."
-  }
-  $dest = Join-Path $downloads $r.file
-  if ((Test-Path $dest) -and ((Get-FileHash -Algorithm SHA256 $dest).Hash -eq $r.sha256.ToUpper())) {
-    Write-Host "  $name $($r.version): already downloaded"
-    return $dest
-  }
-  Write-Host "  $name $($r.version): downloading from $($r.url)"
-  $tmp = "$dest.part"
-  if (Test-Path $tmp) { Remove-Item -Force $tmp }
-  $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
-  if ($curl) {
-    & $curl.Source -fsSL --retry 3 -o $tmp $r.url
-    if ($LASTEXITCODE -ne 0) { Fail "$name couldn't be downloaded." "Check the internet connection, then run install.ps1 again." }
-  } else {
-    try { Invoke-WebRequest -UseBasicParsing -Uri $r.url -OutFile $tmp } catch { Fail "$name couldn't be downloaded." "Check the internet connection, then run install.ps1 again." }
-  }
-  $hash = (Get-FileHash -Algorithm SHA256 $tmp).Hash
-  if ($hash -ne $r.sha256.ToUpper()) {
-    Remove-Item -Force $tmp
-    Fail "the $name download doesn't match its checksum, so it wasn't used." "Run install.ps1 again. If this keeps happening, something on the network is changing downloads; tell your IT contact."
-  }
-  Move-Item -Force $tmp $dest
-  return $dest
-}
-
-function Expand-To($archive, $target) {
-  if (Test-Path $target) { Remove-Item -Recurse -Force $target }
-  New-Item -ItemType Directory -Force -Path $target | Out-Null
-  $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
-  if ($tar) {
-    & $tar.Source -xf $archive -C $target
-    if ($LASTEXITCODE -ne 0) { Fail "$archive couldn't be unpacked." "Check free disk space, then run install.ps1 again." }
-  } else {
-    $zip = "$archive.zip"
-    Copy-Item -Force $archive $zip
-    Expand-Archive -Force -Path $zip -DestinationPath $target
-    Remove-Item -Force $zip
-  }
-}
-
-function Test-Installed($name) {
-  $marker = Join-Path $runtime "$name.sha256"
-  (Test-Path $marker) -and ((Get-Content -Raw $marker).Trim() -eq $runtimes.$name.sha256)
-}
-function Set-Installed($name) { Set-Content -Encoding ASCII (Join-Path $runtime "$name.sha256") $runtimes.$name.sha256 }
-
-# Python: the official NuGet package is a plain copy of Python, with no
-# installer, registry entries or PATH changes.
-$pythonDir = Join-Path $runtime "python"
-$python = Join-Path $pythonDir "python.exe"
-if (-not (Test-Installed "python") -or -not (Test-Path $python)) {
-  $pkg = Get-Verified "python"
-  $unpacked = Join-Path $downloads "python-unpacked"
-  Expand-To $pkg $unpacked
-  if (Test-Path $pythonDir) { Remove-Item -Recurse -Force $pythonDir }
-  Move-Item (Join-Path $unpacked "tools") $pythonDir
-  Remove-Item -Recurse -Force $unpacked
-  Set-Installed "python"
-}
-Write-Host "  Installing the app's Python packages (each checked against its hash)"
-Invoke-Checked "Python's package installer couldn't be set up." "Run install.ps1 again." {
-  & $python -m ensurepip --upgrade --default-pip *> $null
-}
-Invoke-Checked "the app's Python packages couldn't be installed." "Check the internet connection, then run install.ps1 again." {
-  & $python -m pip install --disable-pip-version-check --no-input --quiet --no-warn-script-location `
-    --require-hashes --only-binary=:all: -r (Join-Path $appDir "requirements-windows.txt")
-}
-
-# Tesseract OCR: its official installer, run silently. The installer ignores
-# /D and always installs to Program Files\Tesseract-OCR, which every account
-# (including the app's service accounts) can read but not change.
-$tessExe = Join-Path $env:ProgramFiles "Tesseract-OCR\tesseract.exe"
-if (-not (Test-Installed "tesseract") -or -not (Test-Path $tessExe)) {
-  $setup = Get-Verified "tesseract"
-  $p = Start-Process -FilePath $setup -ArgumentList "/S" -Wait -PassThru
-  # The installer can hand the work to a copy of itself and return early.
-  $deadline = (Get-Date).AddMinutes(3)
-  while (-not (Test-Path $tessExe) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
-  if ($p.ExitCode -ne 0 -or -not (Test-Path $tessExe)) {
-    Fail "Tesseract OCR didn't install (code $($p.ExitCode))." "Run install.ps1 again. If antivirus software asked about it, allow it."
-  }
-  Set-Installed "tesseract"
-}
-
-# Ollama: the official standalone zip, run by the launcher as a service
-# (not the tray app).
-$ollamaDir = Join-Path $runtime "ollama"
-if (-not (Test-Installed "ollama") -or -not (Test-Path (Join-Path $ollamaDir "ollama.exe"))) {
-  $zip = Get-Verified "ollama"
-  Expand-To $zip $ollamaDir
-  Set-Installed "ollama"
-}
-Write-Host "Python $($runtimes.python.version), Tesseract $($runtimes.tesseract.version) and Ollama $($runtimes.ollama.version) are installed."
-
-# --- 5. Configuration and services ------------------------------------------
-Step 5 "Registering the Windows services"
+# --- 4. Configuration and services ------------------------------------------
+Step 4 "Registering the Windows services"
 $configPath = Join-Path $InstallDir "launcher.json"
 $config = [ordered]@{
   data_dir    = $dataDir
@@ -227,7 +127,6 @@ $config = [ordered]@{
   certs_dir   = $certsDir
   app_dir     = $appDir
   runtime_dir = $runtime
-  tesseract   = $tessExe
   log_dir     = $logDir
   supervisor  = "windows"
   port        = $ControlCenterPort
@@ -240,14 +139,14 @@ Invoke-Checked "the Windows services couldn't be registered." "Run install.ps1 a
 }
 Write-Host "Registered the launcher and the Web app, Background worker and Local AI models services."
 
-# --- 6. Certificates and setup code -----------------------------------------
-Step 6 "Creating the HTTPS certificates and the setup code"
+# --- 5. Certificates and setup code -----------------------------------------
+Step 5 "Creating the HTTPS certificates and the setup code"
 Invoke-Checked "the certificates couldn't be created." "Check free disk space, then run install.ps1 again." {
   & $exe --config $configPath prepare
 }
 
-# --- 7. Permissions ---------------------------------------------------------
-Step 7 "Setting folder permissions"
+# --- 6. Permissions ---------------------------------------------------------
+Step 6 "Setting folder permissions"
 function Set-Acl-Exact($path, [string[]]$grants) {
   # Reset, then keep only the listed permissions (no inherited ones).
   & icacls $path /reset /T /C /Q | Out-Null
@@ -278,8 +177,8 @@ foreach ($id in $services) {
 }
 Write-Host "Each service can reach only its own files. The launcher's credentials and the certificate authority are Administrators-only."
 
-# --- 8. Firewall ------------------------------------------------------------
-Step 8 "Setting firewall rules"
+# --- 7. Firewall ------------------------------------------------------------
+Step 7 "Setting firewall rules"
 $group = "Case File Manager"
 Get-NetFirewallRule -Group $group -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 Get-NetFirewallRule -DisplayName "Case File Manager web app" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
@@ -293,8 +192,8 @@ New-NetFirewallRule -Group $group -DisplayName "Case File Manager worker: no int
 Write-Host "Port $AppPort is open on Private networks only. Public and Domain networks stay closed."
 Write-Host "The background worker can't reach the internet. The Control Center (port $ControlCenterPort) only listens on this computer."
 
-# --- 9. Start ---------------------------------------------------------------
-Step 9 "Starting the launcher"
+# --- 8. Start ---------------------------------------------------------------
+Step 8 "Starting the launcher"
 Start-Service -Name $launcherService
 $up = $false
 for ($i = 0; $i -lt 60 -and -not $up; $i++) {
@@ -319,6 +218,8 @@ if (Test-Path $codeFile) {
   Write-Host "Setup is already complete. Sign in with your Admin account." -ForegroundColor Green
 }
 Write-Host ""
+Write-Host "The launcher is now downloading and installing Python, Tesseract OCR, Ollama and the"
+Write-Host "embedding model (about 3 GB), then it starts every service. Watch it in the Control Center."
 Write-Host "The services start with Windows from now on, even when nobody is signed in."
 Write-Host "Open the Control Center at https://localhost:$ControlCenterPort"
 Write-Host "Your browser will warn about the certificate the first time. README-install.md explains how to trust it."

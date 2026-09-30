@@ -25,8 +25,8 @@ type Config struct {
 	CertsDir string `json:"certs_dir"`
 	// AppDir holds the web app and worker source (services/api).
 	AppDir string `json:"app_dir"`
-	// RuntimeDir holds Python (with the app's packages), Tesseract and
-	// Ollama, installed by the installer.
+	// RuntimeDir holds Python (with the app's packages) and Ollama, which the
+	// launcher installs.
 	RuntimeDir string `json:"runtime_dir"`
 	// LogDir holds one log file per service.
 	LogDir string `json:"log_dir"`
@@ -105,6 +105,11 @@ func Load(path string) (Config, error) {
 	}
 	if c.Tesseract == "" {
 		c.Tesseract = filepath.Join(c.RuntimeDir, "tesseract", "tesseract"+exe)
+		// Tesseract's Windows installer ignores the folder it is given and
+		// always installs here.
+		if pf := os.Getenv("ProgramFiles"); runtime.GOOS == "windows" && pf != "" {
+			c.Tesseract = filepath.Join(pf, "Tesseract-OCR", "tesseract.exe")
+		}
 	}
 	if c.Ollama == "" {
 		c.Ollama = filepath.Join(c.RuntimeDir, "ollama", "ollama"+exe)
@@ -142,12 +147,19 @@ func Load(path string) (Config, error) {
 // LauncherDir holds auth, audit and state files.
 func (c Config) LauncherDir() string { return c.StateDir }
 
+// DownloadDir keeps verified downloads. It is inside StateDir so the app
+// services can't swap an installer before the launcher runs it.
+func (c Config) DownloadDir() string { return filepath.Join(c.StateDir, "downloads") }
+
 // CertDir holds the local CA and server certificate.
 func (c Config) CertDir() string { return c.CertsDir }
 
 // State is what the Admin can change from the browser.
 type State struct {
 	LANEnabled bool `json:"lan_enabled"`
+	// Initialized is set once the launcher has installed the components and
+	// started every service for the first time.
+	Initialized bool `json:"initialized,omitempty"`
 	// Wanted lists the services the Admin last started. The launcher starts
 	// them again when the computer restarts, even if nobody signs in.
 	Wanted []string `json:"wanted,omitempty"`

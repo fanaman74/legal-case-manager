@@ -64,9 +64,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           status=0
-          for name in $(jq -r 'to_entries[] | select(.value|type=="object") | .key' scripts/runtimes.json); do
-            url=$(jq -r ".${name}.url" scripts/runtimes.json)
-            want=$(jq -r ".${name}.sha256" scripts/runtimes.json | tr A-Z a-z)
+          for name in $(jq -r 'to_entries[] | select(.value|type=="object") | .key' launcher/internal/components/runtimes.json); do
+            url=$(jq -r ".${name}.url" launcher/internal/components/runtimes.json)
+            want=$(jq -r ".${name}.sha256" launcher/internal/components/runtimes.json | tr A-Z a-z)
             if ! curl -fsSL --retry 3 -o /tmp/dl "$url"; then
               echo "::error::$name download failed: $url"; status=1
               # For GitHub releases, list the latest tags and Windows assets so a valid pin can be chosen.

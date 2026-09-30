@@ -45,6 +45,46 @@ func Lookup(id string) (Service, bool) {
 	return Service{}, false
 }
 
+// ComponentID identifies one program the launcher can install.
+type ComponentID string
+
+const (
+	Python    ComponentID = "python"
+	Tesseract ComponentID = "tesseract"
+	Ollama    ComponentID = "ollama"
+	Model     ComponentID = "model"
+)
+
+// Component is a program or model the app needs. The launcher checks each one
+// and installs it from a download whose SHA-256 is compiled in.
+type Component struct {
+	ID      ComponentID `json:"id"`
+	Name    string      `json:"name"`
+	Purpose string      `json:"purpose"`
+	// Stops lists the services that use the component's files and must be
+	// stopped while it is replaced.
+	Stops []ServiceID `json:"-"`
+}
+
+// Components lists every component in install order: the embedding model
+// comes last because the models service has to be running to download it.
+var Components = []Component{
+	{Python, "Python and the app's packages", "Runs the web app and the background worker.", []ServiceID{API, Worker}},
+	{Tesseract, "Tesseract OCR", "Reads the text in scanned documents.", []ServiceID{Worker}},
+	{Ollama, "Ollama", "Runs AI models on this computer.", []ServiceID{Models}},
+	{Model, "Embedding model", "Turns case text into search vectors on this computer.", nil},
+}
+
+// LookupComponent returns the component with the given id.
+func LookupComponent(id string) (Component, bool) {
+	for _, c := range Components {
+		if string(c.ID) == id {
+			return c, true
+		}
+	}
+	return Component{}, false
+}
+
 // ActionName is one allow-listed action.
 type ActionName string
 
@@ -57,13 +97,16 @@ const (
 	DiagnosticsBundle ActionName = "diagnostics.bundle"
 	CertRenew         ActionName = "cert.renew"
 	SetLANBinding     ActionName = "launcher.set_lan_binding"
+	ComponentInstall  ActionName = "component.install"
+	InstallMissing    ActionName = "components.install_missing"
 )
 
 // ActionSpec says which parameters an action takes.
 type ActionSpec struct {
-	Name         ActionName
-	NeedsService bool
-	NeedsEnabled bool
+	Name           ActionName
+	NeedsService   bool
+	NeedsEnabled   bool
+	NeedsComponent bool
 	// AllowedDuringSetup marks actions the setup-code holder may run before an
 	// Admin account exists (wizard steps 1 and 2).
 	AllowedDuringSetup bool
@@ -79,6 +122,8 @@ var Actions = []ActionSpec{
 	{Name: DiagnosticsBundle},
 	{Name: CertRenew},
 	{Name: SetLANBinding, NeedsEnabled: true},
+	{Name: ComponentInstall, NeedsComponent: true, AllowedDuringSetup: true},
+	{Name: InstallMissing, AllowedDuringSetup: true},
 }
 
 // LookupAction returns the spec for name.

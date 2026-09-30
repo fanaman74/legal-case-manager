@@ -48,7 +48,7 @@ export function Icon({ name, label }: { name: IconName; label?: string }) {
 // ---------------------------------------------------------------------------
 // Badges
 
-type Tone = "ok" | "progress" | "warn" | "error" | "idle";
+export type Tone = "ok" | "progress" | "warn" | "error" | "idle";
 
 export function Badge({ tone, icon, children }: { tone: Tone; icon: IconName; children: ReactNode }) {
   return (

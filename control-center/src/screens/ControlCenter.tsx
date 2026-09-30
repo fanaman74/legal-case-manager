@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type ActionName, type Session, type Snapshot } from "../api";
 import { Activity } from "../sections/Activity";
 import { Checks } from "../sections/Checks";
+import { Components } from "../sections/Components";
 import { Logs } from "../sections/Logs";
 import { Network } from "../sections/Network";
 import { Services } from "../sections/Services";
 import { Wizard } from "../sections/Wizard";
 import { Icon } from "../ui";
 
-export type RunAction = (action: ActionName, extra?: { service?: string; enabled?: boolean }) => Promise<string | null>;
+export type RunAction = (action: ActionName, extra?: { service?: string; component?: string; enabled?: boolean }) => Promise<string | null>;
 
 export function ControlCenter({
   session,
@@ -63,9 +64,12 @@ export function ControlCenter({
   const total = snap?.services.length ?? 6;
   const problems = snap?.checks.filter((c) => c.level === "fail" || c.level === "warn").length ?? 0;
   const stepsDone = snap?.wizard.filter((s) => s.state === "done").length ?? 0;
+  const compsReady = snap?.components.filter((c) => c.state === "installed").length ?? 0;
+  const compsAlert = snap?.components.some((c) => c.state === "failed" || c.state === "missing" || c.state === "outdated");
 
   const nav = [
     { id: "setup", label: "Setup", meta: snap ? `${stepsDone} of ${snap.wizard.length}` : "" },
+    { id: "components", label: "Components", meta: snap ? `${compsReady} of ${snap.components.length}` : "", alert: compsAlert },
     { id: "services", label: "Services", meta: snap ? `${running} of ${total}` : "", alert: snap?.services.some((s) => s.state === "error") },
     { id: "checks", label: "System checks", meta: problems ? String(problems) : "", alert: problems > 0 },
     ...(isAdmin
@@ -152,6 +156,7 @@ export function ControlCenter({
         ) : (
           <>
             <Wizard snap={snap} session={session} onSession={onSession} run={run} collapsed={setupDone && isAdmin} />
+            <Components snap={snap} run={run} />
             <Services snap={snap} run={run} isAdmin={isAdmin} />
             <Checks snap={snap} run={run} isAdmin={isAdmin} />
             {isAdmin && (

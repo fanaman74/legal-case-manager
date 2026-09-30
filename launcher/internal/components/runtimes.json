@@ -1,5 +1,5 @@
 {
-  "_comment": "Programs the installer downloads. Every file is checked against its SHA-256 before use; an empty hash stops the install. The 'runtimes' CI job downloads each URL and fails if a hash is missing or wrong.",
+  "_comment": "Programs the launcher downloads and installs. Compiled into launcher.exe; every file is checked against its SHA-256 before use. The 'runtimes' CI job downloads each URL and fails if a hash is missing or wrong.",
   "python": {
     "version": "3.13.7",
     "url": "https://www.nuget.org/api/v2/package/python/3.13.7",

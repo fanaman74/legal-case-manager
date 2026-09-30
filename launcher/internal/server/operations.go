@@ -11,14 +11,16 @@ import (
 
 // Operation is a service action running in the background.
 type Operation struct {
-	ID         string             `json:"id"`
-	Action     catalog.ActionName `json:"action"`
-	Service    catalog.ServiceID  `json:"service,omitempty"`
-	Actor      string             `json:"actor"`
-	State      string             `json:"state"` // running | succeeded | failed
-	Message    string             `json:"message"`
-	StartedAt  time.Time          `json:"startedAt"`
-	FinishedAt *time.Time         `json:"finishedAt,omitempty"`
+	ID      string             `json:"id"`
+	Action  catalog.ActionName `json:"action"`
+	Service catalog.ServiceID  `json:"service,omitempty"`
+	// Component is the component being installed right now, if any.
+	Component  catalog.ComponentID `json:"component,omitempty"`
+	Actor      string              `json:"actor"`
+	State      string              `json:"state"` // running | succeeded | failed
+	Message    string              `json:"message"`
+	StartedAt  time.Time           `json:"startedAt"`
+	FinishedAt *time.Time          `json:"finishedAt,omitempty"`
 }
 
 // Operation states.
@@ -76,6 +78,23 @@ func (o *operations) finish(op *Operation, ok bool, msg string, now time.Time) {
 	}
 }
 
+// update changes a running operation's progress message.
+func (o *operations) update(op *Operation, comp catalog.ComponentID, msg string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	op.Component, op.Message = comp, msg
+}
+
+// current returns a copy of the running operation, if any.
+func (o *operations) current() (Operation, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.running == nil {
+		return Operation{}, false
+	}
+	return *o.running, true
+}
+
 func (o *operations) list() []Operation {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -102,6 +121,10 @@ func (o *operations) busyServices() map[catalog.ServiceID]string {
 		catalog.StackStartAll:  "Starting",
 		catalog.StackStopAll:   "Stopping",
 	}[op.Action]
+	if label == "" {
+		// Installs stop and start services themselves; their real state shows.
+		return out
+	}
 	if op.Service != "" {
 		out[op.Service] = label
 		return out

@@ -25,6 +25,7 @@ import (
 	"github.com/fanaman74/legal-case-manager/launcher/internal/audit"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/auth"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/components"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/config"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/procs"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/redact"
@@ -206,11 +207,16 @@ func run(ctx context.Context, cfgPath string) error {
 		return fmt.Errorf(`unknown supervisor %q in launcher.json; use "windows" or "direct"`, cfg.Supervisor)
 	}
 
+	comps, err := components.New(cfg, log)
+	if err != nil {
+		return fmt.Errorf("read the compiled-in download list: %w", err)
+	}
 	srv := server.New(server.Options{
 		Config:     cfg,
 		Auth:       store,
 		Audit:      al,
 		Supervisor: sup,
+		Components: comps,
 		Web:        web.FS(),
 		Log:        log,
 	})

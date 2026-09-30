@@ -19,9 +19,10 @@ const MaxBody = 1024
 // Request is a validated action. Its fields only ever hold values taken from
 // the catalog, never text copied from the request.
 type Request struct {
-	Action  catalog.ActionName
-	Service *catalog.Service
-	Enabled *bool
+	Action    catalog.ActionName
+	Service   *catalog.Service
+	Component *catalog.Component
+	Enabled   *bool
 }
 
 // Target is a short description for the audit log.
@@ -29,6 +30,8 @@ func (r Request) Target() string {
 	switch {
 	case r.Service != nil:
 		return string(r.Service.ID)
+	case r.Component != nil:
+		return string(r.Component.ID)
 	case r.Enabled != nil:
 		return fmt.Sprintf("enabled=%t", *r.Enabled)
 	default:
@@ -40,9 +43,10 @@ func (r Request) Target() string {
 var ErrRejected = errors.New("action rejected")
 
 type wire struct {
-	Action  *string `json:"action"`
-	Service *string `json:"service"`
-	Enabled *bool   `json:"enabled"`
+	Action    *string `json:"action"`
+	Service   *string `json:"service"`
+	Component *string `json:"component"`
+	Enabled   *bool   `json:"enabled"`
 }
 
 func reject(format string, a ...any) error {
@@ -95,6 +99,19 @@ func validate(w wire) (Request, error) {
 		req.Service = &svc
 	} else if w.Service != nil {
 		return Request{}, reject("unexpected service")
+	}
+
+	if spec.NeedsComponent {
+		if w.Component == nil {
+			return Request{}, reject("missing component")
+		}
+		c, ok := catalog.LookupComponent(*w.Component)
+		if !ok {
+			return Request{}, reject("unknown component")
+		}
+		req.Component = &c
+	} else if w.Component != nil {
+		return Request{}, reject("unexpected component")
 	}
 
 	if spec.NeedsEnabled {

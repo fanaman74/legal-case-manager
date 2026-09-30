@@ -11,9 +11,9 @@ import (
 
 	"github.com/fanaman74/legal-case-manager/launcher/internal/catalog"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/checks"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/components"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/health"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/netguard"
-	"github.com/fanaman74/legal-case-manager/launcher/internal/procs"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/status"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/supervisor"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/sysinfo"
@@ -37,15 +37,16 @@ type LAN struct {
 // Snapshot is everything the Control Center shows. It is rebuilt every few
 // seconds and streamed to open pages.
 type Snapshot struct {
-	GeneratedAt time.Time        `json:"generatedAt"`
-	Launcher    string           `json:"launcherVersion"`
-	Runtime     RuntimeState     `json:"runtime"`
-	Services    []status.Service `json:"services"`
-	Checks      []checks.Check   `json:"checks"`
-	LAN         LAN              `json:"lan"`
-	Operations  []Operation      `json:"operations"`
-	Wizard      []WizardStep     `json:"wizard"`
-	HasAdmin    bool             `json:"hasAdmin"`
+	GeneratedAt time.Time           `json:"generatedAt"`
+	Launcher    string              `json:"launcherVersion"`
+	Runtime     RuntimeState        `json:"runtime"`
+	Services    []status.Service    `json:"services"`
+	Components  []components.Status `json:"components"`
+	Checks      []checks.Check      `json:"checks"`
+	LAN         LAN                 `json:"lan"`
+	Operations  []Operation         `json:"operations"`
+	Wizard      []WizardStep        `json:"wizard"`
+	HasAdmin    bool                `json:"hasAdmin"`
 }
 
 type poller struct {
@@ -191,6 +192,7 @@ func (p *poller) refresh(ctx context.Context) {
 	}
 	p.sampler.Forget(live)
 
+	snap.Components = s.componentStatus()
 	snap.Checks = p.systemChecks(snap, readyErr, now)
 	snap.LAN = s.lanInfo()
 	snap.Operations = s.ops.list()
@@ -285,9 +287,7 @@ func (p *poller) systemChecks(snap Snapshot, readyErr error, now time.Time) []ch
 			byID["runtime"] = checks.Runtime("", nil, readyErr, s.sup.Name())
 		}
 	}
-	byID["model"] = checks.Model(procs.ModelsDir(s.cfg), s.cfg.EmbeddingModel)
-
-	order := []string{"runtime", "disk", "port", "cert", "model", "ocr", "pst", "database", "vectors", "audit"}
+	order := []string{"runtime", "disk", "port", "cert", "ocr", "pst", "database", "vectors", "audit"}
 	out := make([]checks.Check, 0, len(order))
 	for _, id := range order {
 		if c, ok := byID[id]; ok {
@@ -346,21 +346,49 @@ func wizard(snap Snapshot) []WizardStep {
 
 	pre := WizardStep{N: 1, ID: "prerequisites", Title: "Check prerequisites"}
 	failed := 0
-	for _, id := range []string{"runtime", "disk", "port"} {
+	for _, id := range []string{"disk", "port"} {
 		if check(id) == checks.Fail {
 			failed++
 		}
 	}
+	if !snap.Runtime.OK {
+		failed++
+	}
 	switch {
 	case failed > 0:
 		pre.State, pre.Detail = StepFailed, fmt.Sprintf("%d check(s) need attention.", failed)
-	case check("runtime") == checks.Pending:
-		pre.State, pre.Detail = StepInProgress, "Checking the installation."
+	case check("disk") == checks.Pending:
+		pre.State, pre.Detail = StepInProgress, "Checking this computer."
 	default:
-		pre.State, pre.Detail = StepDone, "The app is installed, there is enough disk space, and the web app's port is free."
+		pre.State, pre.Detail = StepDone, "The launcher is installed, there is enough disk space, and the web app's port is free."
 	}
 
-	svc := WizardStep{N: 2, ID: "services", Title: "Start the services"}
+	comp := WizardStep{N: 2, ID: "components", Title: "Install Python, OCR and the local AI"}
+	installed, installing, compFailed := 0, false, ""
+	for _, c := range snap.Components {
+		switch c.State {
+		case components.Installed:
+			installed++
+		case components.Installing:
+			installing = true
+		case components.Failed:
+			if compFailed == "" {
+				compFailed = c.Detail
+			}
+		}
+	}
+	switch {
+	case installed == len(snap.Components):
+		comp.State, comp.Detail = StepDone, "Everything the app needs is installed."
+	case installing:
+		comp.State, comp.Detail = StepInProgress, fmt.Sprintf("%d of %d installed.", installed, len(snap.Components))
+	case compFailed != "":
+		comp.State, comp.Detail = StepFailed, compFailed
+	default:
+		comp.State, comp.Detail = StepTodo, fmt.Sprintf("%d of %d installed. The downloads are about 3 GB.", installed, len(snap.Components))
+	}
+
+	svc := WizardStep{N: 3, ID: "services", Title: "Start the services"}
 	running, errs, starting := 0, 0, 0
 	for _, x := range snap.Services {
 		switch x.State {
@@ -393,22 +421,15 @@ func wizard(snap Snapshot) []WizardStep {
 		svc.State, svc.Detail = StepTodo, fmt.Sprintf("%d of %d running.", running, total)
 	}
 
-	admin := WizardStep{N: 3, ID: "admin", Title: "Create the Admin account"}
+	admin := WizardStep{N: 4, ID: "admin", Title: "Create the Admin account"}
 	if snap.HasAdmin {
 		admin.State, admin.Detail = StepDone, "The Admin account exists."
 	} else {
 		admin.State, admin.Detail = StepTodo, "Choose the username and password you'll use to sign in."
 	}
 
-	model := WizardStep{N: 4, ID: "embeddings", Title: "Choose the embedding model"}
-	if check("model") == checks.Pass {
-		model.State, model.Detail = StepDone, "The embedding model is downloaded."
-	} else {
-		model.State, model.Detail = StepUnavailable, "Model download isn't available in this version yet. It arrives with search indexing."
-	}
-
 	return []WizardStep{
-		pre, svc, admin, model,
+		pre, comp, svc, admin,
 		{N: 5, ID: "chat", Title: "Connect a chat provider (optional)", State: StepUnavailable, Detail: "Provider settings arrive with the AI features."},
 		{N: 6, ID: "first-case", Title: "Create the first case", State: StepUnavailable, Detail: "Cases arrive with the web app's next version."},
 		{N: 7, ID: "invite", Title: "Share the address and invite users", State: StepUnavailable, Detail: "Inviting users arrives with accounts and permissions."},
