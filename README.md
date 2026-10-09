@@ -27,7 +27,7 @@ Each app service is hosted by `launcher.exe host <service>` under its own virtua
 |---|---|
 | `launcher/` | Go launcher: allow-list, auth, audit, service supervisor, health checks, component installer with pinned downloads (`internal/components/runtimes.json`), HTTPS server |
 | `control-center/` | React Control Center, built into the launcher binary |
-| `services/api/` | FastAPI web app and background worker (phase 1: health only). Its Dockerfile is only for a future Railway deployment. |
+| `services/api/` | FastAPI web app and background worker (phase 1: health only). Its Dockerfile is only for Railway, which builds it from the repository root via `railway.json`. |
 | `scripts/` | Build script and the Windows CI smoke test. The Windows installer (Setup.exe) is `launcher/internal/setup`. |
 | `docs/` | Design brief, tokens, architecture, install and certificate guides |
 
