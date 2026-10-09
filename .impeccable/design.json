@@ -1,0 +1,599 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-09T17:12:04.797182+00:00",
+  "title": "Design System: Case File Manager",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Accent",
+        "tonalRamp": [
+          "oklch(15.00% 0.16033 5.82)",
+          "oklch(26.43% 0.16033 5.82)",
+          "oklch(37.86% 0.16033 5.82)",
+          "oklch(49.29% 0.16033 5.82)",
+          "oklch(60.71% 0.16033 5.82)",
+          "oklch(72.14% 0.16033 5.82)",
+          "oklch(83.57% 0.16033 5.82)",
+          "oklch(95.00% 0.16033 5.82)"
+        ]
+      },
+      "accent-dark": {
+        "role": "primary",
+        "displayName": "Accent Dark",
+        "tonalRamp": [
+          "oklch(15.00% 0.15008 6.20)",
+          "oklch(26.43% 0.15008 6.20)",
+          "oklch(37.86% 0.15008 6.20)",
+          "oklch(49.29% 0.15008 6.20)",
+          "oklch(60.71% 0.15008 6.20)",
+          "oklch(72.14% 0.15008 6.20)",
+          "oklch(83.57% 0.15008 6.20)",
+          "oklch(95.00% 0.15008 6.20)"
+        ]
+      },
+      "rose": {
+        "role": "primary",
+        "displayName": "Rose",
+        "tonalRamp": [
+          "oklch(15.00% 0.02000 353.99)",
+          "oklch(26.43% 0.02000 353.99)",
+          "oklch(37.86% 0.02000 353.99)",
+          "oklch(49.29% 0.02000 353.99)",
+          "oklch(60.71% 0.02000 353.99)",
+          "oklch(72.14% 0.02000 353.99)",
+          "oklch(83.57% 0.02000 353.99)",
+          "oklch(95.00% 0.02000 353.99)"
+        ]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Background",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "sidebar": {
+        "role": "neutral",
+        "displayName": "Sidebar",
+        "tonalRamp": [
+          "oklch(15.00% 0.00168 325.59)",
+          "oklch(26.43% 0.00168 325.59)",
+          "oklch(37.86% 0.00168 325.59)",
+          "oklch(49.29% 0.00168 325.59)",
+          "oklch(60.71% 0.00168 325.59)",
+          "oklch(72.14% 0.00168 325.59)",
+          "oklch(83.57% 0.00168 325.59)",
+          "oklch(95.00% 0.00168 325.59)"
+        ]
+      },
+      "subtle": {
+        "role": "neutral",
+        "displayName": "Subtle",
+        "tonalRamp": [
+          "oklch(15.00% 0.00169 325.59)",
+          "oklch(26.43% 0.00169 325.59)",
+          "oklch(37.86% 0.00169 325.59)",
+          "oklch(49.29% 0.00169 325.59)",
+          "oklch(60.71% 0.00169 325.59)",
+          "oklch(72.14% 0.00169 325.59)",
+          "oklch(83.57% 0.00169 325.59)",
+          "oklch(95.00% 0.00169 325.59)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "tonalRamp": [
+          "oklch(15.00% 0.01503 296.80)",
+          "oklch(26.43% 0.01503 296.80)",
+          "oklch(37.86% 0.01503 296.80)",
+          "oklch(49.29% 0.01503 296.80)",
+          "oklch(60.71% 0.01503 296.80)",
+          "oklch(72.14% 0.01503 296.80)",
+          "oklch(83.57% 0.01503 296.80)",
+          "oklch(95.00% 0.01503 296.80)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.01582 314.68)",
+          "oklch(26.43% 0.01582 314.68)",
+          "oklch(37.86% 0.01582 314.68)",
+          "oklch(49.29% 0.01582 314.68)",
+          "oklch(60.71% 0.01582 314.68)",
+          "oklch(72.14% 0.01582 314.68)",
+          "oklch(83.57% 0.01582 314.68)",
+          "oklch(95.00% 0.01582 314.68)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Line",
+        "tonalRamp": [
+          "oklch(15.00% 0.00587 333.98)",
+          "oklch(26.43% 0.00587 333.98)",
+          "oklch(37.86% 0.00587 333.98)",
+          "oklch(49.29% 0.00587 333.98)",
+          "oklch(60.71% 0.00587 333.98)",
+          "oklch(72.14% 0.00587 333.98)",
+          "oklch(83.57% 0.00587 333.98)",
+          "oklch(95.00% 0.00587 333.98)"
+        ]
+      },
+      "control-text": {
+        "role": "neutral",
+        "displayName": "Control Text",
+        "tonalRamp": [
+          "oklch(15.00% 0.01665 310.24)",
+          "oklch(26.43% 0.01665 310.24)",
+          "oklch(37.86% 0.01665 310.24)",
+          "oklch(49.29% 0.01665 310.24)",
+          "oklch(60.71% 0.01665 310.24)",
+          "oklch(72.14% 0.01665 310.24)",
+          "oklch(83.57% 0.01665 310.24)",
+          "oklch(95.00% 0.01665 310.24)"
+        ]
+      },
+      "hover-surface": {
+        "role": "neutral",
+        "displayName": "Hover Surface",
+        "tonalRamp": [
+          "oklch(15.00% 0.00503 345.28)",
+          "oklch(26.43% 0.00503 345.28)",
+          "oklch(37.86% 0.00503 345.28)",
+          "oklch(49.29% 0.00503 345.28)",
+          "oklch(60.71% 0.00503 345.28)",
+          "oklch(72.14% 0.00503 345.28)",
+          "oklch(83.57% 0.00503 345.28)",
+          "oklch(95.00% 0.00503 345.28)"
+        ]
+      },
+      "button-hover": {
+        "role": "neutral",
+        "displayName": "Button Hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.00413 337.35)",
+          "oklch(26.43% 0.00413 337.35)",
+          "oklch(37.86% 0.00413 337.35)",
+          "oklch(49.29% 0.00413 337.35)",
+          "oklch(60.71% 0.00413 337.35)",
+          "oklch(72.14% 0.00413 337.35)",
+          "oklch(83.57% 0.00413 337.35)",
+          "oklch(95.00% 0.00413 337.35)"
+        ]
+      },
+      "button-hover-border": {
+        "role": "neutral",
+        "displayName": "Button Hover Border",
+        "tonalRamp": [
+          "oklch(15.00% 0.01627 335.10)",
+          "oklch(26.43% 0.01627 335.10)",
+          "oklch(37.86% 0.01627 335.10)",
+          "oklch(49.29% 0.01627 335.10)",
+          "oklch(60.71% 0.01627 335.10)",
+          "oklch(72.14% 0.01627 335.10)",
+          "oklch(83.57% 0.01627 335.10)",
+          "oklch(95.00% 0.01627 335.10)"
+        ]
+      },
+      "panel-hover": {
+        "role": "neutral",
+        "displayName": "Panel Hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.00499 345.28)",
+          "oklch(26.43% 0.00499 345.28)",
+          "oklch(37.86% 0.00499 345.28)",
+          "oklch(49.29% 0.00499 345.28)",
+          "oklch(60.71% 0.00499 345.28)",
+          "oklch(72.14% 0.00499 345.28)",
+          "oklch(83.57% 0.00499 345.28)",
+          "oklch(95.00% 0.00499 345.28)"
+        ]
+      },
+      "panel-hover-border": {
+        "role": "neutral",
+        "displayName": "Panel Hover Border",
+        "tonalRamp": [
+          "oklch(15.00% 0.04054 354.09)",
+          "oklch(26.43% 0.04054 354.09)",
+          "oklch(37.86% 0.04054 354.09)",
+          "oklch(49.29% 0.04054 354.09)",
+          "oklch(60.71% 0.04054 354.09)",
+          "oklch(72.14% 0.04054 354.09)",
+          "oklch(83.57% 0.04054 354.09)",
+          "oklch(95.00% 0.04054 354.09)"
+        ]
+      },
+      "emphasis-border": {
+        "role": "neutral",
+        "displayName": "Emphasis Border",
+        "tonalRamp": [
+          "oklch(15.00% 0.10760 358.54)",
+          "oklch(26.43% 0.10760 358.54)",
+          "oklch(37.86% 0.10760 358.54)",
+          "oklch(49.29% 0.10760 358.54)",
+          "oklch(60.71% 0.10760 358.54)",
+          "oklch(72.14% 0.10760 358.54)",
+          "oklch(83.57% 0.10760 358.54)",
+          "oklch(95.00% 0.10760 358.54)"
+        ]
+      },
+      "blue-bg": {
+        "role": "secondary",
+        "displayName": "Blue Bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.01442 244.72)",
+          "oklch(26.43% 0.01442 244.72)",
+          "oklch(37.86% 0.01442 244.72)",
+          "oklch(49.29% 0.01442 244.72)",
+          "oklch(60.71% 0.01442 244.72)",
+          "oklch(72.14% 0.01442 244.72)",
+          "oklch(83.57% 0.01442 244.72)",
+          "oklch(95.00% 0.01442 244.72)"
+        ]
+      },
+      "blue-text": {
+        "role": "secondary",
+        "displayName": "Blue Text",
+        "tonalRamp": [
+          "oklch(15.00% 0.05420 240.75)",
+          "oklch(26.43% 0.05420 240.75)",
+          "oklch(37.86% 0.05420 240.75)",
+          "oklch(49.29% 0.05420 240.75)",
+          "oklch(60.71% 0.05420 240.75)",
+          "oklch(72.14% 0.05420 240.75)",
+          "oklch(83.57% 0.05420 240.75)",
+          "oklch(95.00% 0.05420 240.75)"
+        ]
+      },
+      "amber-bg": {
+        "role": "secondary",
+        "displayName": "Amber Bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.03016 90.33)",
+          "oklch(26.43% 0.03016 90.33)",
+          "oklch(37.86% 0.03016 90.33)",
+          "oklch(49.29% 0.03016 90.33)",
+          "oklch(60.71% 0.03016 90.33)",
+          "oklch(72.14% 0.03016 90.33)",
+          "oklch(83.57% 0.03016 90.33)",
+          "oklch(95.00% 0.03016 90.33)"
+        ]
+      },
+      "amber-text": {
+        "role": "secondary",
+        "displayName": "Amber Text",
+        "tonalRamp": [
+          "oklch(15.00% 0.08914 87.86)",
+          "oklch(26.43% 0.08914 87.86)",
+          "oklch(37.86% 0.08914 87.86)",
+          "oklch(49.29% 0.08914 87.86)",
+          "oklch(60.71% 0.08914 87.86)",
+          "oklch(72.14% 0.08914 87.86)",
+          "oklch(83.57% 0.08914 87.86)",
+          "oklch(95.00% 0.08914 87.86)"
+        ]
+      },
+      "mint-bg": {
+        "role": "secondary",
+        "displayName": "Mint Bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.01743 164.66)",
+          "oklch(26.43% 0.01743 164.66)",
+          "oklch(37.86% 0.01743 164.66)",
+          "oklch(49.29% 0.01743 164.66)",
+          "oklch(60.71% 0.01743 164.66)",
+          "oklch(72.14% 0.01743 164.66)",
+          "oklch(83.57% 0.01743 164.66)",
+          "oklch(95.00% 0.01743 164.66)"
+        ]
+      },
+      "mint-text": {
+        "role": "secondary",
+        "displayName": "Mint Text",
+        "tonalRamp": [
+          "oklch(15.00% 0.08218 163.88)",
+          "oklch(26.43% 0.08218 163.88)",
+          "oklch(37.86% 0.08218 163.88)",
+          "oklch(49.29% 0.08218 163.88)",
+          "oklch(60.71% 0.08218 163.88)",
+          "oklch(72.14% 0.08218 163.88)",
+          "oklch(83.57% 0.08218 163.88)",
+          "oklch(95.00% 0.08218 163.88)"
+        ]
+      },
+      "lavender-bg": {
+        "role": "secondary",
+        "displayName": "Lavender Bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.01809 303.41)",
+          "oklch(26.43% 0.01809 303.41)",
+          "oklch(37.86% 0.01809 303.41)",
+          "oklch(49.29% 0.01809 303.41)",
+          "oklch(60.71% 0.01809 303.41)",
+          "oklch(72.14% 0.01809 303.41)",
+          "oklch(83.57% 0.01809 303.41)",
+          "oklch(95.00% 0.01809 303.41)"
+        ]
+      },
+      "lavender-text": {
+        "role": "secondary",
+        "displayName": "Lavender Text",
+        "tonalRamp": [
+          "oklch(15.00% 0.07784 299.67)",
+          "oklch(26.43% 0.07784 299.67)",
+          "oklch(37.86% 0.07784 299.67)",
+          "oklch(49.29% 0.07784 299.67)",
+          "oklch(60.71% 0.07784 299.67)",
+          "oklch(72.14% 0.07784 299.67)",
+          "oklch(83.57% 0.07784 299.67)",
+          "oklch(95.00% 0.07784 299.67)"
+        ]
+      },
+      "success": {
+        "role": "neutral",
+        "displayName": "Success",
+        "tonalRamp": [
+          "oklch(15.00% 0.07343 165.26)",
+          "oklch(26.43% 0.07343 165.26)",
+          "oklch(37.86% 0.07343 165.26)",
+          "oklch(49.29% 0.07343 165.26)",
+          "oklch(60.71% 0.07343 165.26)",
+          "oklch(72.14% 0.07343 165.26)",
+          "oklch(83.57% 0.07343 165.26)",
+          "oklch(95.00% 0.07343 165.26)"
+        ]
+      },
+      "success-bg": {
+        "role": "neutral",
+        "displayName": "Success Bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.01319 159.92)",
+          "oklch(26.43% 0.01319 159.92)",
+          "oklch(37.86% 0.01319 159.92)",
+          "oklch(49.29% 0.01319 159.92)",
+          "oklch(60.71% 0.01319 159.92)",
+          "oklch(72.14% 0.01319 159.92)",
+          "oklch(83.57% 0.01319 159.92)",
+          "oklch(95.00% 0.01319 159.92)"
+        ]
+      },
+      "error": {
+        "role": "neutral",
+        "displayName": "Error",
+        "tonalRamp": [
+          "oklch(15.00% 0.15539 15.27)",
+          "oklch(26.43% 0.15539 15.27)",
+          "oklch(37.86% 0.15539 15.27)",
+          "oklch(49.29% 0.15539 15.27)",
+          "oklch(60.71% 0.15539 15.27)",
+          "oklch(72.14% 0.15539 15.27)",
+          "oklch(83.57% 0.15539 15.27)",
+          "oklch(95.00% 0.15539 15.27)"
+        ]
+      },
+      "error-bg": {
+        "role": "neutral",
+        "displayName": "Error Bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.01640 8.16)",
+          "oklch(26.43% 0.01640 8.16)",
+          "oklch(37.86% 0.01640 8.16)",
+          "oklch(49.29% 0.01640 8.16)",
+          "oklch(60.71% 0.01640 8.16)",
+          "oklch(72.14% 0.01640 8.16)",
+          "oklch(83.57% 0.01640 8.16)",
+          "oklch(95.00% 0.01640 8.16)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Welcome heading",
+        "purpose": "Desktop welcome; responsive sizes are recorded in DESIGN.md."
+      },
+      "headline": {
+        "displayName": "Page heading",
+        "purpose": "Page headings and mobile page-size override."
+      },
+      "title": {
+        "displayName": "Section title",
+        "purpose": "Base section headings, with component-specific overrides."
+      },
+      "body": {
+        "displayName": "Root body",
+        "purpose": "Root baseline for inherited text."
+      },
+      "message": {
+        "displayName": "Chat content",
+        "purpose": "Chat paragraphs and readable source-related content."
+      },
+      "label": {
+        "displayName": "Button label",
+        "purpose": "Standard button labels."
+      }
+    },
+    "shadows": [
+      {
+        "name": "composer",
+        "value": "0 6px 18px #38222e07",
+        "purpose": "Faint resting depth under the composer."
+      },
+      {
+        "name": "dialog",
+        "value": "0 12px 70px #21152233",
+        "purpose": "Source and consent dialogs."
+      },
+      {
+        "name": "upload-toast",
+        "value": "0 5px 25px #30253024",
+        "purpose": "Transient upload feedback."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-transition",
+        "value": "background-color 160ms, color 160ms, border-color 160ms",
+        "purpose": "Buttons and links."
+      },
+      {
+        "name": "evidence-entry",
+        "value": "evidence-in 160ms ease-out",
+        "purpose": "Source dialog: opacity .8 to 1 and translateY(8px) to 0."
+      },
+      {
+        "name": "loading-spin",
+        "value": "spin 1s linear infinite",
+        "purpose": "Loading indicators rotate to 360deg."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation-duration: .01ms; animation-iteration-count: 1; transition-duration: .01ms; scroll-behavior: auto",
+        "purpose": "Applied by prefers-reduced-motion: reduce."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-desktop",
+        "value": "1100px",
+        "condition": "max-width"
+      },
+      {
+        "name": "mobile",
+        "value": "760px",
+        "condition": "max-width"
+      },
+      {
+        "name": "wide-desktop",
+        "value": "1450px",
+        "condition": "min-width"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Source-defined button variant with hover, keyboard focus and disabled treatment.",
+      "html": "<button type=\"button\" class=\"ds-btn-primary\">Use this model</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--line,#e9e5e8);border-radius:8px;padding:10px 14px;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:12px;font-weight:500;line-height:1.4;white-space:nowrap;cursor:pointer;transition:background-color 160ms,color 160ms,border-color 160ms;background:var(--accent,#b83d62);border-color:var(--accent,#b83d62);color:#fff;}.ds-btn-primary:hover{background:var(--accent-dark,#9e2d50);border-color:var(--accent-dark,#9e2d50);}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#b83d62);outline-offset:3px;}.ds-btn-primary:disabled{cursor:not-allowed;opacity:.48;}@media(prefers-reduced-motion:reduce){.ds-btn-primary{transition-duration:.01ms!important;}}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Source-defined button variant with hover, keyboard focus and disabled treatment.",
+      "html": "<button type=\"button\" class=\"ds-btn-secondary\">Browse files</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--line,#e9e5e8);border-radius:8px;padding:10px 14px;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:12px;font-weight:500;line-height:1.4;white-space:nowrap;cursor:pointer;transition:background-color 160ms,color 160ms,border-color 160ms;background:#fff;color:#403b44;}.ds-btn-secondary:hover{background:#f8f5f7;border-color:#d6cbd3;}.ds-btn-secondary:focus-visible{outline:2px solid var(--accent,#b83d62);outline-offset:3px;}.ds-btn-secondary:disabled{cursor:not-allowed;opacity:.48;}@media(prefers-reduced-motion:reduce){.ds-btn-secondary{transition-duration:.01ms!important;}}"
+    },
+    {
+      "name": "Subtle Button",
+      "kind": "button",
+      "refersTo": "button-subtle",
+      "description": "Source-defined button variant with hover, keyboard focus and disabled treatment.",
+      "html": "<button type=\"button\" class=\"ds-btn-subtle\">Keep it local</button>",
+      "css": ".ds-btn-subtle{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--line,#e9e5e8);border-radius:8px;padding:10px 14px;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:12px;font-weight:500;line-height:1.4;white-space:nowrap;cursor:pointer;transition:background-color 160ms,color 160ms,border-color 160ms;background:#fff;border-color:transparent;color:var(--muted,#69636c);}.ds-btn-subtle:hover{background:var(--subtle,#f8f7f8);}.ds-btn-subtle:focus-visible{outline:2px solid var(--accent,#b83d62);outline-offset:3px;}.ds-btn-subtle:disabled{cursor:not-allowed;opacity:.48;}@media(prefers-reduced-motion:reduce){.ds-btn-subtle{transition-duration:.01ms!important;}}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Neutral field; rose focus border and visible keyboard outline.",
+      "html": "<input class=\"ds-input\" aria-label=\"Model identifier\" placeholder=\"Choose or enter a model identifier\"/>",
+      "css": ".ds-input{min-width:0;color:#25232b;background:#fff;border:1px solid var(--line,#e9e5e8);border-radius:8px;padding:11px 12px;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:12px;caret-color:var(--accent,#b83d62);}.ds-input::placeholder{color:#79727d;opacity:1;}.ds-input:focus{border-color:var(--accent,#b83d62);}.ds-input:focus-visible{outline:2px solid var(--accent,#b83d62);outline-offset:3px;}"
+    },
+    {
+      "name": "Active Navigation",
+      "kind": "nav",
+      "refersTo": "navigation-active",
+      "description": "Rose-selected desktop navigation item with an outline icon.",
+      "html": "<button type=\"button\" class=\"ds-nav-active\" aria-current=\"page\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/></svg><span>Documents</span></button>",
+      "css": ".ds-nav-active{display:flex;align-items:center;gap:11px;width:100%;padding:12px 13px;border:0;border-radius:7px;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:12px;font-weight:500;text-align:left;color:var(--accent,#b83d62);background:var(--rose,#fbeaf0);cursor:pointer;transition:background-color 160ms,color 160ms,border-color 160ms;}.ds-nav-active:focus-visible{outline:2px solid var(--accent,#b83d62);outline-offset:3px;}.ds-nav-active svg{flex-shrink:0;}@media(prefers-reduced-motion:reduce){.ds-nav-active{transition-duration:.01ms!important;}}"
+    },
+    {
+      "name": "Keyword Tag",
+      "kind": "chip",
+      "refersTo": "keyword-tag",
+      "description": "Passive topic keyword; no invented interactive states.",
+      "html": "<span class=\"ds-keyword\">repair</span>",
+      "css": ".ds-keyword{display:inline-block;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:9px;color:#756879;background:#f5f1f5;border-radius:4px;padding:3px 7px;}"
+    },
+    {
+      "name": "Quick Start",
+      "kind": "card",
+      "refersTo": "quick-start",
+      "description": "Border-defined starter with a supporting blue icon tile and muted explanatory line.",
+      "html": "<button type=\"button\" class=\"ds-quick-start\"><span class=\"ds-starter-icon\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 2v4\"/><path d=\"M16 2v4\"/><path d=\"M3 10h18\"/><path d=\"M8 14h.01\"/><path d=\"M12 14h.01\"/><path d=\"M16 14h.01\"/><path d=\"M8 18h.01\"/><path d=\"M12 18h.01\"/><path d=\"M16 18h.01\"/><rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\"/></svg></span><span class=\"ds-starter-copy\"><strong>Build a timeline</strong><small>Find dates, events and deadlines</small></span><span class=\"ds-starter-arrow\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/></svg></span></button>",
+      "css": ".ds-quick-start{display:flex;align-items:center;gap:13px;padding:18px 16px;text-align:left;border:1px solid var(--line,#e9e5e8);border-radius:12px;background:#fff;color:#25232b;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;cursor:pointer;transition:background-color 160ms,color 160ms,border-color 160ms;}.ds-quick-start:hover{background:#fcf8fa;border-color:#e3c2ce;}.ds-quick-start:focus-visible{outline:2px solid var(--accent,#b83d62);outline-offset:3px;}.ds-starter-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:9px;flex-shrink:0;background:#eaf3fb;color:#476880;}.ds-starter-copy{flex:1;}.ds-starter-copy strong{display:block;font-size:12px;font-weight:550;margin-bottom:5px;}.ds-starter-copy small{display:block;font-size:10px;line-height:1.5;color:var(--muted,#69636c);}.ds-starter-arrow{color:#b2a7b2;}@media(prefers-reduced-motion:reduce){.ds-quick-start{transition-duration:.01ms!important;}}"
+    },
+    {
+      "name": "Question Composer",
+      "kind": "custom",
+      "refersTo": "composer",
+      "description": "Rose-bordered white composer with faint depth and an explicit send action.",
+      "html": "<div class=\"ds-composer\"><textarea class=\"ds-composer-input\" aria-label=\"Ask about your documents\" placeholder=\"Ask about your documents\u2026\"></textarea><div class=\"ds-composer-tools\"><span class=\"ds-document-context\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/></svg> 0 documents</span><button type=\"button\" class=\"ds-send\" aria-label=\"Send question\" disabled><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/></svg></button></div></div>",
+      "css": ".ds-composer{background:#fff;color:#25232b;border:1px solid #e5cad4;border-radius:16px;padding:16px 18px 12px;box-shadow:0 6px 18px #38222e07;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;}.ds-composer:focus-within{border-color:#c87692;}.ds-composer-input{width:100%;min-height:72px;max-height:240px;padding:0;border:0;border-radius:0;resize:vertical;background:transparent;color:#25232b;caret-color:var(--accent,#b83d62);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:12px;line-height:1.7;}.ds-composer-input::placeholder{color:#79727d;opacity:1;}.ds-composer-input:focus-visible{outline:1px solid var(--accent,#b83d62);outline-offset:5px;}.ds-composer-tools{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid #f5f1f3;padding-top:11px;margin-top:10px;}.ds-document-context{display:inline-flex;align-items:center;gap:6px;font-size:10px;color:var(--muted,#69636c);}.ds-send{display:grid;place-items:center;width:33px;height:33px;border:0;border-radius:9px;background:var(--accent,#b83d62);color:#fff;cursor:pointer;transition:background-color 160ms,color 160ms,border-color 160ms;}.ds-send:hover{background:var(--accent-dark,#9e2d50);}.ds-send:focus-visible{outline:2px solid var(--accent,#b83d62);outline-offset:3px;}.ds-send:disabled{background:#f2dae3;color:#9d6e80;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-send{transition-duration:.01ms!important;}}"
+    },
+    {
+      "name": "Source Citation",
+      "kind": "custom",
+      "refersTo": "citation",
+      "description": "Source name and page remain together in the source-dialog action.",
+      "html": "<button type=\"button\" class=\"ds-citation\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/></svg><span class=\"ds-citation-name\">Document name</span><span class=\"ds-citation-page\">Page 1</span></button>",
+      "css": ".ds-citation{display:inline-flex;gap:7px;align-items:center;max-width:100%;border:0;border-radius:6px;padding:6px 8px;background:#fcf2f6;color:var(--accent-dark,#9e2d50);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:11px;text-align:left;cursor:pointer;transition:background-color 160ms,color 160ms,border-color 160ms;}.ds-citation:hover{background:#f7e1e9;}.ds-citation:focus-visible{outline:2px solid var(--accent,#b83d62);outline-offset:3px;}.ds-citation-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.ds-citation-page{color:#8c687a;font-size:10px;flex-shrink:0;}@media(prefers-reduced-motion:reduce){.ds-citation{transition-duration:.01ms!important;}}"
+    },
+    {
+      "name": "Provider Choice",
+      "kind": "custom",
+      "refersTo": "provider-choice",
+      "description": "Native radio selection with provider identity and key status.",
+      "html": "<label class=\"ds-provider\"><input class=\"ds-provider-radio\" type=\"radio\" name=\"ds-provider\" checked/><span class=\"ds-provider-monogram\">C</span><span class=\"ds-provider-copy\"><strong>Claude</strong><small>Claude models, directly from Anthropic</small></span><span class=\"ds-provider-status\">Key needed</span></label>",
+      "css": ".ds-provider{display:flex;align-items:center;gap:16px;border:1px solid #c87692;border-radius:10px;padding:19px;background:#fdf8fa;color:#25232b;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;cursor:pointer;}.ds-provider:hover{background:#fdf8fa;}.ds-provider-radio{accent-color:var(--accent,#b83d62);}.ds-provider-radio:focus-visible{outline:2px solid var(--accent,#b83d62);outline-offset:3px;}.ds-provider-monogram{display:grid;place-items:center;width:35px;height:35px;border-radius:9px;background:#f6ede5;color:#8f5840;font-size:17px;font-weight:600;flex-shrink:0;}.ds-provider-copy{flex:1;min-width:0;}.ds-provider-copy strong{display:block;font-size:13px;font-weight:550;}.ds-provider-copy small{display:block;font-size:10px;color:var(--muted,#69636c);margin-top:6px;}.ds-provider-status{font-size:10px;white-space:nowrap;color:var(--muted,#69636c);}"
+    }
+  ],
+  "narrative": {
+    "overview": "The confirmed visual reference is the user's TencentCloud/Octop desktop chat screenshot. Preserve its quiet white workspace, pale sidebar, restrained rose selection, outline icons and generous composer under the Case File Manager identity. The implementation carries that language through document tables, specialist agent rows, review tasks and provider selection.\n\nThe visual system is compact and practical: fine borders establish structure, muted labels support the content, and rose draws attention to selection and primary actions. No new creative metaphor has been selected. This document records the implemented system rather than proposing another visual direction; page strategy remains in `docs/design/workspace.md`.",
+    "keyCharacteristics": [
+      "White content with a pale sidebar and restrained rose actions.",
+      "System sans typography and consistent outline icons.",
+      "Border-defined rows and panels with softly curved controls.",
+      "Source passages and external consent presented in focused dialogs."
+    ],
+    "rules": [
+      {
+        "name": "The Rose Selection Rule",
+        "body": "Keep primary action and selection treatments in the established rose family across views.",
+        "section": "colors"
+      },
+      {
+        "name": "The Border-First Rule",
+        "body": "Preserve row dividers and tonal grouping for ordinary content; keep elevated shadows on the composer, dialogs and transient upload feedback.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** preserve the confirmed Octop-inspired white workspace, pale sidebar and rose selection under the Case File Manager identity.",
+      "**Do** use the existing system sans hierarchy, outline icons and visible action labels.",
+      "**Do** keep source names, locations and cited passages visually connected.",
+      "**Do** use row dividers and subtle surfaces for dense document, agent and task collections.",
+      "**Do** preserve keyboard focus, reduced-motion behavior and text alongside semantic status colors."
+    ],
+    "donts": [
+      "**Don't** reuse Octop's mascot or branding in place of the Case File Manager identity.",
+      "**Don't** replace the restrained rose action palette with topic-agent or provider identity colors.",
+      "**Don't** add large shadows or decorative art to ordinary table and list surfaces.",
+      "**Don't** hide source or consent actions behind unlabeled icons when their existing text labels explain the action."
+    ]
+  }
+}

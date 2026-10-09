@@ -1,0 +1,2 @@
+# Optional browser verification, separate from the application runtime.
+playwright==1.62.0

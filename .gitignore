@@ -16,3 +16,9 @@ setup-code.txt
 __pycache__/
 .pytest_cache/
 .venv/
+
+# Workspace outputs and local provider settings
+control-center/dist/
+.env
+.cache/
+test-results/
