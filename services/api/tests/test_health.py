@@ -30,12 +30,38 @@ def test_ready_reports_unwritable_data_dir(monkeypatch, tmp_path):
 
 
 def test_no_api_docs_exposed():
+    # Unknown addresses get the app's page (its router shows "no page here"), never an API description.
     for path in ("/docs", "/redoc", "/openapi.json"):
-        assert client.get(path).status_code == 404
+        r = client.get(path)
+        assert "openapi" not in r.text.lower() and "swagger" not in r.text.lower()
+        assert r.headers["content-type"].startswith("text/html")
+
+
+def test_unknown_api_address_is_json_404():
+    r = client.get("/api/nothing-here")
+    assert r.status_code == 404 and r.json() == {"detail": "Not found"}
+
+
+def test_pages_served_with_security_headers(monkeypatch, tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<!doctype html><div id=root></div>")
+    (tmp_path / "assets" / "app-1234.js").write_text("console.log(1)")
+    monkeypatch.setattr(main, "WEB_DIR", tmp_path)
+    for path in ("/", "/cases/0123456789abcdef0123456789abcdef", "/people"):
+        r = client.get(path)
+        assert r.status_code == 200 and "id=root" in r.text
+        assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+        assert r.headers["x-frame-options"] == "DENY"
+    r = client.get("/assets/app-1234.js")
+    assert r.status_code == 200 and "immutable" in r.headers["cache-control"]
+    (tmp_path / "secret.txt").write_text("not an asset")
+    for sneaky in ("/assets/..%2Fsecret.txt", "/assets/..%5Csecret.txt", "/assets/.hidden"):
+        assert "not an asset" not in client.get(sneaky).text
+    assert client.get("/assets/missing.js").status_code == 404
 
 
 def test_deploy_mode_validated(monkeypatch):
-    monkeypatch.setenv("DEPLOY_MODE", "staging")
+    monkeypatch.setenv("DEPLOY_MODE", "cloud")
     with pytest.raises(ValueError):
         settings.load()
 
@@ -69,8 +95,6 @@ def test_public_clients_refused_locally(monkeypatch):
     assert "office network" in r.text
     local = TestClient(app, client=("192.168.1.20", 5000))
     assert local.get("/health").status_code == 200
-    monkeypatch.setattr(main, "cfg", settings.Settings(main.cfg.data_dir, "cloud", "test"))
-    assert public.get("/health").status_code == 200
 
 
 def test_serve_requires_tls_locally(tmp_path):
@@ -80,8 +104,6 @@ def test_serve_requires_tls_locally(tmp_path):
         serve.options(settings.Settings(tmp_path, "local", "t"))
     opts = serve.options(settings.Settings(tmp_path, "local", "t", tls_cert="c", tls_key="k"))
     assert opts["ssl_certfile"] == "c" and opts["proxy_headers"] is False
-    cloud = serve.options(settings.Settings(tmp_path, "cloud", "t", port=8080))
-    assert "ssl_certfile" not in cloud and cloud["proxy_headers"] is True and cloud["port"] == 8080
 
 
 def test_health_checks_not_logged():

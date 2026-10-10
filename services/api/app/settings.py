@@ -1,6 +1,6 @@
 """Settings come only from environment variables, so the same code runs on the
-local Windows machine (DEPLOY_MODE=local, started by the launcher) and on a
-cloud host such as Railway (DEPLOY_MODE=cloud) without changes."""
+Windows machine, set by the launcher. The app runs only on the local
+computer (DEPLOY_MODE=local); there is no cloud mode."""
 
 import os
 from dataclasses import dataclass
@@ -17,10 +17,6 @@ class Settings:
     tls_cert: str = ""
     tls_key: str = ""
     max_upload_bytes: int = 2 * 2**30
-
-    @property
-    def is_cloud(self) -> bool:
-        return self.deploy_mode == "cloud"
 
     @property
     def run_dir(self) -> Path:
@@ -48,8 +44,8 @@ class Settings:
 
 def load() -> Settings:
     mode = os.environ.get("DEPLOY_MODE", "local")
-    if mode not in ("local", "cloud"):
-        raise ValueError(f"DEPLOY_MODE must be 'local' or 'cloud', got {mode!r}")
+    if mode != "local":
+        raise ValueError(f"DEPLOY_MODE must be 'local', got {mode!r}. The app only runs on the local computer.")
     return Settings(
         data_dir=Path(os.environ.get("DATA_DIR", "/data")),
         deploy_mode=mode,

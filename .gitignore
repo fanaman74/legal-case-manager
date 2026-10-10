@@ -16,3 +16,6 @@ setup-code.txt
 __pycache__/
 .pytest_cache/
 .venv/
+services/api/app/web/
+web/node_modules/
+web/dist/

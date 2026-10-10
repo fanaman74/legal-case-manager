@@ -142,7 +142,7 @@ def test_delete_case(admin, new_case, cfg):
 @pytest.mark.parametrize("bad", ["../escape", "a" * 33, "ABCDEF" + "0" * 26])
 def test_malformed_case_ids(admin, bad):
     assert admin.get(f"/api/cases/{bad}").status_code in (404, 405)
-    assert admin.put(f"/api/cases/{bad}/files", params={"path": "a.pdf"}, content=b"x").status_code == 404
+    assert admin.put(f"/api/cases/{bad}/files", params={"path": "a.pdf"}, content=b"x").status_code in (404, 405)
 
 
 def test_activity_shows_case_history(admin, people, new_case):

@@ -20,9 +20,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: control-center/package-lock.json
+          cache-dependency-path: |
+            control-center/package-lock.json
+            web/package-lock.json
       - name: Control Center
         working-directory: control-center
+        run: npm ci && npm run build && npm test
+      - name: Web app screens
+        working-directory: web
         run: npm ci && npm run build && npm test
       - name: gofmt
         working-directory: launcher
@@ -97,7 +102,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: control-center/package-lock.json
+          cache-dependency-path: |
+            control-center/package-lock.json
+            web/package-lock.json
       - name: Build the install folder
         shell: bash
         run: ./scripts/build.sh windows
