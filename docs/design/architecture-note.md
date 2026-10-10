@@ -116,6 +116,8 @@ Job queue: a table in SQLite (queue length, retry and failure lists for the Cont
 
 ## 6. Railway readiness (decided 2026-09-29)
 
+> **Superseded 2026-10-10.** fred decided the app is local-only: "this needs to be a local app, configure to run locally". The Railway files (`railway.json`, `services/api/Dockerfile`) and the app's `cloud` mode were removed in phase 2; the API now refuses any `DEPLOY_MODE` other than `local`. The rules below are kept as history only.
+
 fred chose to keep the self-hosted plan but to keep a Railway deployment possible later. The build will follow these rules so that a move needs configuration, not a rewrite:
 
 - **Configured by environment variables only.** The same Python code runs under the launcher on Windows and in a container on Railway (`services/api/Dockerfile` exists only for that). No Windows paths or host assumptions in the app. Each service reads `PORT`, `DATA_DIR` and a `DEPLOY_MODE=local|cloud` flag. Secrets come from the environment (Railway variables in the cloud, an encrypted local file at home).

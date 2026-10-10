@@ -257,6 +257,14 @@ func (s *Store) CreateAdmin(sess *Session, user, password string) error {
 	return nil
 }
 
+// AdminCredential returns the Admin username and Argon2id hash, so the main
+// app can accept the same password. Both are empty before setup.
+func (s *Store) AdminCredential() (user, hash string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.AdminUser, s.data.AdminHash
+}
+
 // Login checks Admin credentials.
 func (s *Store) Login(user, password, ip string) (*Session, error) {
 	s.mu.Lock()

@@ -763,3 +763,33 @@ func TestOtherActionsWaitForAnInstall(t *testing.T) {
 		t.Fatalf("op: %+v", op)
 	}
 }
+
+func TestAdminHandedToApp(t *testing.T) {
+	h := newHarness(t)
+	path := h.srv.appAdminFile()
+	if err := h.srv.provisionAppAdmin(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("no Admin yet, but the app file exists: %v", err)
+	}
+	h.admin()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Username     string `json:"username"`
+		PasswordHash string `json:"password_hash"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	user, hash := h.srv.auth.AdminCredential()
+	if got.Username != "fred" || got.Username != user || got.PasswordHash != hash || !strings.HasPrefix(hash, "$argon2id$") {
+		t.Fatalf("app admin file = %s", b)
+	}
+	if strings.Contains(string(b), "correct horse") {
+		t.Fatal("password written in clear")
+	}
+}

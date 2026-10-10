@@ -1,6 +1,6 @@
 """Settings come only from environment variables, so the same code runs on the
-local Windows machine (DEPLOY_MODE=local, started by the launcher) and on a
-cloud host such as Railway (DEPLOY_MODE=cloud) without changes."""
+Windows machine, set by the launcher. The app runs only on the local
+computer (DEPLOY_MODE=local); there is no cloud mode."""
 
 import os
 from dataclasses import dataclass
@@ -16,10 +16,7 @@ class Settings:
     port: int = 8443
     tls_cert: str = ""
     tls_key: str = ""
-
-    @property
-    def is_cloud(self) -> bool:
-        return self.deploy_mode == "cloud"
+    max_upload_bytes: int = 2 * 2**30
 
     @property
     def run_dir(self) -> Path:
@@ -30,11 +27,25 @@ class Settings:
     def heartbeat_file(self) -> Path:
         return self.run_dir / "worker-heartbeat"
 
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "app.db"
+
+    @property
+    def cases_dir(self) -> Path:
+        return self.data_dir / "cases"
+
+    @property
+    def admin_account_file(self) -> Path:
+        """Written by the launcher when the Admin account is created in the
+        setup wizard (launcher/internal/server/appadmin.go)."""
+        return self.run_dir / "admin-account.json"
+
 
 def load() -> Settings:
     mode = os.environ.get("DEPLOY_MODE", "local")
-    if mode not in ("local", "cloud"):
-        raise ValueError(f"DEPLOY_MODE must be 'local' or 'cloud', got {mode!r}")
+    if mode != "local":
+        raise ValueError(f"DEPLOY_MODE must be 'local', got {mode!r}. The app only runs on the local computer.")
     return Settings(
         data_dir=Path(os.environ.get("DATA_DIR", "/data")),
         deploy_mode=mode,
@@ -43,4 +54,5 @@ def load() -> Settings:
         port=int(os.environ.get("PORT", "8443")),
         tls_cert=os.environ.get("TLS_CERT", ""),
         tls_key=os.environ.get("TLS_KEY", ""),
+        max_upload_bytes=int(os.environ.get("MAX_UPLOAD_MB", "2048")) * 2**20,
     )

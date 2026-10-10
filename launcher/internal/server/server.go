@@ -274,6 +274,9 @@ func (s *Server) startWanted(ctx context.Context) {
 // Run starts the poller and listeners and blocks until ctx is done.
 func (s *Server) Run(ctx context.Context) error {
 	s.bgCtx = ctx
+	if err := s.provisionAppAdmin(); err != nil {
+		s.log.Error("hand the Admin account to the app", "err", err)
+	}
 	go s.poller.run(ctx)
 	go s.autoSetup(ctx)
 	if err := s.reconcileListeners(); err != nil {

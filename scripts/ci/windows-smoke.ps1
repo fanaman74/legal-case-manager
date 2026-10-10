@@ -80,6 +80,31 @@ foreach ($id in @("api", "worker", "models")) {
 # The web app answers on its port.
 $health = Invoke-RestMethod -Uri "https://127.0.0.1/health" -SkipCertificateCheck
 Check ($health.status -eq "ok") "web app answers on port 443 (version $($health.version))"
+$page = Invoke-WebRequest -Uri "https://127.0.0.1/" -SkipCertificateCheck -UseBasicParsing
+Check ($page.Content -match 'id="root"') "web app serves its screens"
+
+# The Admin created in the setup wizard signs in to the web app with the same
+# password, creates a case and uploads a file as NT SERVICE\CaseFiles-api.
+Post "/api/session/admin" @{ username = "ciadmin"; password = "ci admin password 2026" } $csrf | Out-Null
+$app = "https://127.0.0.1"
+$appSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+function AppCall($method, $path, $body, $contentType = "application/json") {
+  $h = @{ Origin = $app }
+  if ($script:appCsrf) { $h["X-CSRF-Token"] = $script:appCsrf }
+  Invoke-RestMethod -Method $method -Uri "$app$path" -Body $body -ContentType $contentType -Headers $h -WebSession $appSession -SkipCertificateCheck
+}
+$appCsrf = $null
+$s = AppCall Post "/api/session" (@{ username = "ciadmin"; password = "ci admin password 2026" } | ConvertTo-Json)
+$appCsrf = $s.csrf
+Check ($s.user.role -eq "admin") "the wizard's Admin signs in to the web app"
+$case = AppCall Post "/api/cases" (@{ name = "CI case" } | ConvertTo-Json)
+Check ([bool]$case.id) "Admin creates a case"
+$up = AppCall Put "/api/cases/$($case.id)/files?path=Letters%2Fhello.txt" ([Text.Encoding]::UTF8.GetBytes("hello from CI")) "application/octet-stream"
+Check ($up.result -eq "stored" -and $up.file.folder -eq "Letters") "a file uploads into the case ($($up.result))"
+$stored = Get-Item "$root\data\cases\$($case.id)\original\$($up.file.id).txt" -ErrorAction SilentlyContinue
+Check ($stored -and $stored.IsReadOnly) "the original is stored read-only in the data folder"
+$audit = AppCall Get "/api/audit"
+Check ($audit.tamper_check.intact -and $audit.tamper_check.entries -ge 4) "the audit log records it and passes the tamper check ($($audit.tamper_check.entries) entries)"
 
 # Nobody but Administrators and SYSTEM can read the CA key or the launcher's files.
 foreach ($p in @("$root\certs\ca.key", "$root\launcher\auth.json", "$root\launcher\audit.jsonl")) {
