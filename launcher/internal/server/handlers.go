@@ -262,6 +262,9 @@ func (s *Server) handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.record(r, sess.User, "auth.create_admin", sess.User, audit.Succeeded, "")
+	if err := s.provisionAppAdmin(); err != nil {
+		s.log.Error("hand the Admin account to the app", "err", err)
+	}
 	s.poller.refresh(r.Context())
 	writeJSON(w, http.StatusOK, sessionView{State: string(sess.Scope), User: sess.User, CSRF: sess.CSRF})
 }

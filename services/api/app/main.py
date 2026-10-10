@@ -1,5 +1,5 @@
-"""Web app / API. Phase 1 only exposes health endpoints and a holding page;
-accounts, cases and files arrive in phase 2."""
+"""Web app / API: health checks, sign-in, people, cases, file upload and the
+audit log. Every /api route except sign-in needs a signed-in session."""
 
 import ipaddress
 import sqlite3
@@ -8,10 +8,14 @@ import tempfile
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
-from . import settings
+from . import runtime, settings
+from .routes import audit_log, cases, files, session, users
 
 cfg = settings.load()
 app = FastAPI(title="Case File Manager", version=cfg.version, docs_url=None, redoc_url=None, openapi_url=None)
+app.state.rt = runtime.Runtime(cfg)
+for module in (session, users, cases, files, audit_log):
+    app.include_router(module.router)
 
 # Locally the app listens on every interface so people on the office network
 # can reach it. Windows Firewall only opens the port on Private networks; this
@@ -34,7 +38,14 @@ def is_local_client(host: str | None) -> bool:
 async def local_network_only(request: Request, call_next):
     if not cfg.is_cloud and not is_local_client(request.client.host if request.client else None):
         return PlainTextResponse("Case File Manager is only available on the office network. Connect to it, or to the office VPN, and try again.", status_code=403)
-    return await call_next(request)
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        # API answers hold case data: never cache them.
+        response.headers.setdefault("Cache-Control", "no-store")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    return response
 
 
 @app.get("/health")

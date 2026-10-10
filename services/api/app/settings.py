@@ -16,6 +16,7 @@ class Settings:
     port: int = 8443
     tls_cert: str = ""
     tls_key: str = ""
+    max_upload_bytes: int = 2 * 2**30
 
     @property
     def is_cloud(self) -> bool:
@@ -30,6 +31,20 @@ class Settings:
     def heartbeat_file(self) -> Path:
         return self.run_dir / "worker-heartbeat"
 
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "app.db"
+
+    @property
+    def cases_dir(self) -> Path:
+        return self.data_dir / "cases"
+
+    @property
+    def admin_account_file(self) -> Path:
+        """Written by the launcher when the Admin account is created in the
+        setup wizard (launcher/internal/server/appadmin.go)."""
+        return self.run_dir / "admin-account.json"
+
 
 def load() -> Settings:
     mode = os.environ.get("DEPLOY_MODE", "local")
@@ -43,4 +58,5 @@ def load() -> Settings:
         port=int(os.environ.get("PORT", "8443")),
         tls_cert=os.environ.get("TLS_CERT", ""),
         tls_key=os.environ.get("TLS_KEY", ""),
+        max_upload_bytes=int(os.environ.get("MAX_UPLOAD_MB", "2048")) * 2**20,
     )
