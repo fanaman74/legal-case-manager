@@ -9,6 +9,8 @@ from fastapi import Request
 
 from . import settings
 from .db import Database
+from .index.embed import Embedder
+from .index.store import CaseIndex
 from .storage import Storage
 from .throttle import Throttle
 
@@ -27,6 +29,13 @@ class Runtime:
     @cached_property
     def storage(self) -> Storage:
         return Storage(self.cfg.cases_dir)
+
+    @cached_property
+    def embedder(self) -> Embedder:
+        return Embedder(self.cfg.ollama_url, self.cfg.embed_model)
+
+    def index(self, case_id: str) -> CaseIndex:
+        return CaseIndex(self.storage.case_dir(case_id))
 
 
 def get(request: Request) -> Runtime:

@@ -105,10 +105,10 @@ function SignedIn({ session, onSignedOut, onSession }: { session: Session; onSig
       page = <CaseList />;
       break;
     case "case":
-      page = <CasePage key={route.id} id={route.id} tab={route.tab} folder={route.folder} />;
+      page = <CasePage key={route.id} id={route.id} tab={route.tab} folder={route.folder} q={route.q ?? ""} />;
       break;
     case "document":
-      page = <DocumentViewer key={route.fileId} caseId={route.id} fileId={route.fileId} page={route.page_no} />;
+      page = <DocumentViewer key={route.fileId} caseId={route.id} fileId={route.fileId} page={route.page_no} q={route.q ?? ""} />;
       break;
     case "jobs":
       page = isAdmin ? <Jobs /> : <NoAccess />;

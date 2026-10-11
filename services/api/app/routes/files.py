@@ -85,6 +85,7 @@ def file_view(row: sqlite3.Row) -> dict:
         "title": row["title"],
         "converted_at": row["converted_at"],
         "previews": row["previews"],
+        "search": {"state": row["index_state"], "passages": row["passages"]},
         "email": {k: meta.get(k) for k in ("from", "to", "cc", "date", "subject")} if row["source_type"] == "email" and meta else None,
         "attachments": meta.get("attachments", []),
     }
@@ -336,7 +337,9 @@ def progress(case_id: str, user: dict = Depends(accounts.current_user), rt: runt
         warnings = db.execute("SELECT COUNT(*) FROM files WHERE case_id = ? AND warnings != '[]'", (case_id,)).fetchone()[0]
         scanned = db.execute("SELECT COUNT(*) FROM files WHERE case_id = ? AND scanned_pages != '[]'", (case_id,)).fetchone()[0]
         job_counts = jobs.counts(db, [case_id])
-    return {"files": statuses, "total": sum(statuses.values()), "warnings": warnings, "scanned": scanned, "jobs": job_counts}
+        index = {r["index_state"] or "waiting": r["n"] for r in db.execute(
+            "SELECT index_state, COUNT(*) AS n FROM files WHERE case_id = ? AND status IN ('converted', 'needs_ocr') GROUP BY index_state", (case_id,))}
+    return {"files": statuses, "total": sum(statuses.values()), "warnings": warnings, "scanned": scanned, "jobs": job_counts, "index": index}
 
 
 @router.get("/files/{file_id}/markdown")

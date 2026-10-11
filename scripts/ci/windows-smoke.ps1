@@ -130,6 +130,19 @@ Check ($md.body -match "hello from CI" -and $md.front_matter -match "source_type
 $f = WaitConverted $scan.file.id
 $md = if ($f.status -eq "converted") { AppCall Get "/api/cases/$($case.id)/files/$($scan.file.id)/markdown" } else { $null }
 Check ($f.ocr -and $md.body -match "steel never arrived") "the worker reads a picture with Tesseract OCR ($($f.status) $($f.error))"
+# The worker indexes it with the local embedding model, and search finds
+# it by exact words and by meaning.
+$deadline = (Get-Date).AddMinutes(4)
+do {
+  $f = AppCall Get "/api/cases/$($case.id)/files/$($scan.file.id)"
+  if ($f.search.state -in @("indexed", "keyword_only", "failed")) { break }
+  Start-Sleep -Seconds 2
+} while ((Get-Date) -lt $deadline)
+Check ($f.search.state -eq "indexed") "the worker indexes it with the local model ($($f.search.state), $($f.search.passages) passages)"
+$found = AppCall Get "/api/cases/$($case.id)/search?q=steel%20arrived&mode=keyword"
+Check ($found.results.Count -ge 1 -and $found.results[0].file.id -eq $scan.file.id) "keyword search finds it"
+$found = AppCall Get "/api/cases/$($case.id)/search?q=metal%20delivery&mode=semantic"
+Check ($found.meaning -eq "on" -and $found.results.Count -ge 1) "meaning search runs on the local model ($($found.meaning))"
 $jobs = Invoke-RestMethod -Uri "$base/api/status" -WebSession $session -SkipCertificateCheck
 Check ($jobs.jobs -and $jobs.jobs.updated) "the Control Center shows the worker's job counts"
 

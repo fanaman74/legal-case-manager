@@ -13,7 +13,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from . import jobs, pipeline, settings
+from . import indexing, jobs, pipeline, settings
 from .runtime import Runtime
 
 INTERVAL = 5
@@ -42,17 +42,31 @@ def write_status(rt: Runtime) -> None:
 
 
 def extra_status(rt: Runtime) -> dict:
-    """More status from later parts of the pipeline (the vector index)."""
-    return {}
+    """Search index counts, for the Control Center (counts only)."""
+    with rt.db.connect() as db:
+        r = db.execute(
+            """SELECT COUNT(DISTINCT CASE WHEN passages > 0 THEN case_id END) AS cases, COALESCE(SUM(passages), 0) AS chunks,
+                      SUM(index_state = 'indexed') AS indexed, SUM(index_state = 'keyword_only') AS keyword_only,
+                      SUM(index_state = '') AS pending, SUM(index_state = 'failed') AS failures
+               FROM files WHERE status IN ('converted', 'needs_ocr')"""
+        ).fetchone()
+    problem = ""
+    if r["keyword_only"]:
+        problem = (f"{r['keyword_only']:,} files can only be searched by keyword until the local AI model is running. "
+                   "Check Local AI models in Components; meaning search catches up by itself.")
+    return {"index": {"cases": r["cases"] or 0, "chunks": r["chunks"] or 0, "model": rt.cfg.embed_model, "problem": problem,
+                      "indexed": r["indexed"] or 0, "pending": r["pending"] or 0, "failures": r["failures"] or 0}}
 
 
 # Kinds of work and the function that does each job.
-HANDLERS: dict[str, Callable[[Runtime, dict], None]] = {"convert": pipeline.run_convert}
+HANDLERS: dict[str, Callable[[Runtime, dict], None]] = {"convert": pipeline.run_convert, "index": indexing.run_index}
 
 
 def lanes(cfg: settings.Settings) -> list[tuple[str, ...]]:
     """Which job kinds each worker thread takes."""
-    return [("convert",)] * cfg.convert_workers
+    # Indexing has one thread: the local model works on one request at a
+    # time anyway, and each case's index has one writer.
+    return [("convert",)] * cfg.convert_workers + [("index",)]
 
 
 def run_lane(rt: Runtime, kinds: tuple[str, ...], stop: threading.Event) -> None:
@@ -81,6 +95,7 @@ def run_lane(rt: Runtime, kinds: tuple[str, ...], stop: threading.Event) -> None
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per passage otherwise
     cfg = settings.load()
     rt = Runtime(cfg)
     stop = threading.Event()
@@ -95,6 +110,7 @@ def main() -> int:
     threads: list[threading.Thread] = []
     started = False
     last_tidy = 0.0
+    last_catch_up = 0.0
     while not stop.is_set():
         try:
             beat(cfg)
@@ -109,9 +125,15 @@ def main() -> int:
                 started = True
                 log.info("taking jobs: %s", ", ".join(t.name for t in threads))
             write_status(rt)
+            if time.time() - last_catch_up > 300:
+                last_catch_up = time.time()
+                queued = indexing.catch_up(rt)
+                if queued:
+                    log.info("the local model is available: adding meaning search for %d files", queued)
             if time.time() - last_tidy > 3600:
                 jobs.tidy(rt.db)
                 rt.storage.empty_trash()
+                indexing.optimise_all(rt)
                 last_tidy = time.time()
             if healthy is not True:
                 log.info("writing heartbeats to the data folder")
