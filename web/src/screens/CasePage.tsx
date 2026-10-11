@@ -3,11 +3,12 @@ import { useState } from "react";
 import { api, ApiError, type Case } from "../api";
 import { ActivityTab, DetailsTab, PeopleTab } from "../components/CaseTabs";
 import { FilesTab } from "../components/FilesTab";
+import { SearchTab } from "../components/SearchTab";
 import { useApp, useLoad, useTitle } from "../hooks";
 import { href, navigate, type CaseTab } from "../router";
 import { ActionMenu, Badge, Button, EmptyState, ErrorPanel, Field, FormError, Link, Modal, Skeleton, type MenuItem } from "../ui";
 
-export function CasePage({ id, tab, folder }: { id: string; tab: CaseTab; folder: string }) {
+export function CasePage({ id, tab, folder, q }: { id: string; tab: CaseTab; folder: string; q: string }) {
   const { reloadCases, toast } = useApp();
   const { data: c, error, loading, reload, setData } = useLoad(() => api.case(id), [id]);
   const [deleting, setDeleting] = useState(false);
@@ -41,16 +42,26 @@ export function CasePage({ id, tab, folder }: { id: string; tab: CaseTab; folder
     }
   };
 
+  const reindex = async () => {
+    setProblem(null);
+    try {
+      const r = await api.reindex(id);
+      toast(r.queued ? `Rebuilding the search index for ${r.queued.toLocaleString()} ${r.queued === 1 ? "file" : "files"}. Search keeps working meanwhile.` : "There are no converted files to index yet.");
+    } catch (e) {
+      setProblem((e as Error).message);
+    }
+  };
   const menu: MenuItem[] = [
     { label: "Edit details", icon: "file", onSelect: () => navigate(href({ page: "case", id, tab: "details", folder: "" })) },
     c.status === "active"
       ? { label: "Archive case", icon: "archive", onSelect: () => void run(() => api.archiveCase(id), "Case archived. It's read-only until restored.") }
       : { label: "Restore case", icon: "archive", onSelect: () => void run(() => api.restoreCase(id), "Case restored.") },
+    ...(c.status === "active" ? [{ label: "Rebuild search index", icon: "refresh" as const, onSelect: () => void reindex() }] : []),
     "separator",
     { label: "Delete case…", icon: "error", danger: true, onSelect: () => setDeleting(true) },
   ];
 
-  const tabHref = (t: CaseTab) => href({ page: "case", id, tab: t, folder: t === "files" ? folder : "" });
+  const tabHref = (t: CaseTab) => href({ page: "case", id, tab: t, folder: t === "files" ? folder : "", q: t === "search" ? q : undefined });
 
   return (
     <div className="page">
@@ -79,14 +90,17 @@ export function CasePage({ id, tab, folder }: { id: string; tab: CaseTab; folder
 
       <Tabs.Root value={tab} onValueChange={(t) => navigate(tabHref(t as CaseTab))} activationMode="manual">
         <Tabs.List className="tabs" aria-label="Case sections">
-          {(["files", "details", "people", "activity"] as CaseTab[]).map((t) => (
+          {(["files", "search", "details", "people", "activity"] as CaseTab[]).map((t) => (
             <Tabs.Trigger key={t} value={t} className="tabs__tab">
-              {{ files: "Files", details: "Details", people: "People", activity: "Activity" }[t]}
+              {{ files: "Files", search: "Search", details: "Details", people: "People", activity: "Activity" }[t]}
             </Tabs.Trigger>
           ))}
         </Tabs.List>
         <Tabs.Content value="files" className="tabs__panel">
           {tab === "files" && <FilesTab caseId={id} folder={folder} canUpload={perms.upload} canEdit={perms.edit} onChanged={() => void reloadCases()} />}
+        </Tabs.Content>
+        <Tabs.Content value="search" className="tabs__panel">
+          {tab === "search" && <SearchTab caseId={id} q={q} />}
         </Tabs.Content>
         <Tabs.Content value="details" className="tabs__panel">
           {tab === "details" && <DetailsTab c={c} canEdit={perms.edit} canRename={perms.manage && c.status === "active"} onSaved={(next) => { updated(next); toast("Details saved."); }} />}

@@ -101,6 +101,7 @@ func Specs(cfg config.Config, version string) map[catalog.ServiceID]Spec {
 				"TLS_KEY="+filepath.Join(cfg.CertsDir, tlsca.ServerKey),
 				// Search turns each question into a vector with the local model.
 				"OLLAMA_URL="+ModelsURL(cfg),
+				"EMBED_MODEL="+cfg.EmbeddingModel,
 			)...),
 			LogFile: LogFile(cfg, catalog.API),
 		},
@@ -109,7 +110,7 @@ func Specs(cfg config.Config, version string) map[catalog.ServiceID]Spec {
 			Path:    cfg.Python,
 			Args:    []string{"-m", "app.worker"},
 			Dir:     cfg.AppDir,
-			Env:     env(append(app, "TESSERACT_CMD="+cfg.Tesseract, "OLLAMA_URL="+ModelsURL(cfg))...),
+			Env:     env(append(app, "TESSERACT_CMD="+cfg.Tesseract, "OLLAMA_URL="+ModelsURL(cfg), "EMBED_MODEL="+cfg.EmbeddingModel)...),
 			LogFile: LogFile(cfg, catalog.Worker),
 		},
 		catalog.Models: {

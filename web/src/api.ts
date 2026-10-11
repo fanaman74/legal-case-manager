@@ -62,6 +62,7 @@ export type CaseFile = {
   title: string | null;
   converted_at: string | null;
   previews: number;
+  search: { state: "" | "indexed" | "keyword_only" | "failed"; passages: number };
   email: { from: string; to: string[]; cc: string[]; date: string | null; subject: string } | null;
   attachments: { name: string; doc_id: string; duplicate?: boolean }[];
 };
@@ -74,6 +75,24 @@ export type Progress = {
   warnings: number;
   scanned: number;
   jobs: Record<string, JobCounts>;
+  index: Partial<Record<"waiting" | "indexed" | "keyword_only" | "failed", number>>;
+};
+
+export type SearchMode = "hybrid" | "keyword" | "semantic";
+export type SearchFilters = { type?: string; folder?: string; date_from?: string; date_to?: string; tag?: string };
+export type SearchHit = { passage: number; page: number | null; heading: string; snippet: string; found_by: ("words" | "meaning")[] };
+export type SearchResult = {
+  file: { id: string; name: string; folder: string; type: CaseFile["type"]; title: string | null; doc_date: string | null; page_count: number | null };
+  hits: SearchHit[];
+  more: number;
+};
+export type SearchResponse = {
+  results: SearchResult[];
+  documents: number;
+  terms: string[];
+  meaning: "on" | "off" | "unavailable";
+  mode: SearchMode;
+  index: { indexed: number; keyword_only: number; waiting: number; failed: number };
 };
 
 export type Job = {
@@ -206,6 +225,12 @@ export const api = {
   files: (id: string, params: { q?: string; folder?: string; type?: string; status?: string; sort?: string; order?: string; limit?: number; offset?: number }) =>
     request<{ items: CaseFile[]; total: number }>("GET", `/api/cases/${id}/files${q(params)}`),
   file: (id: string, fileId: string) => request<CaseFile>("GET", `/api/cases/${id}/files/${fileId}`),
+  search: (id: string, q: string, mode: SearchMode, filters: SearchFilters, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ q, mode });
+    for (const [k, v] of Object.entries(filters)) if (v) params.set(k, v);
+    return request<SearchResponse>("GET", `/api/cases/${id}/search?${params}`, undefined, { signal });
+  },
+  reindex: (id: string) => request<{ queued: number }>("POST", `/api/cases/${id}/reindex`),
   folders: (id: string) => request<{ items: { path: string; files: number }[] }>("GET", `/api/cases/${id}/folders`),
   editFile: (id: string, fileId: string, tags: string[]) => request<CaseFile>("PATCH", `/api/cases/${id}/files/${fileId}`, { tags }),
   downloadUrl: (id: string, fileId: string) => `/api/cases/${id}/files/${fileId}/original`,

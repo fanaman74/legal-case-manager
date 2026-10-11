@@ -163,4 +163,5 @@ def _store(rt: Runtime, job: dict, row, work: Path, result: dict, ocr: bool) -> 
 
 
 def after_convert(db, case_id: str, file_id: str, status: str) -> None:
-    """Next step for a converted file (indexing, from phase 4)."""
+    """Next step for a converted file: add it to the case's search index."""
+    jobs.enqueue(db, "index", case_id, file_id)

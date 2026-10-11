@@ -8,7 +8,7 @@ import { href, navigate } from "../router";
 import { Button, CopyButton, EmptyState, ErrorPanel, Icon, Link, Skeleton } from "../ui";
 
 /** Original and converted Markdown side by side, kept on the same page. */
-export function DocumentViewer({ caseId, fileId, page }: { caseId: string; fileId: string; page: number }) {
+export function DocumentViewer({ caseId, fileId, page, q = "" }: { caseId: string; fileId: string; page: number; q?: string }) {
   const { cases, toast } = useApp();
   const file = useLoad(() => api.file(caseId, fileId), [caseId, fileId]);
   const doc = useLoad(() => api.markdown(caseId, fileId), [caseId, fileId]);
@@ -44,9 +44,18 @@ export function DocumentViewer({ caseId, fileId, page }: { caseId: string; fileI
 
   // Keep the address on the page being read, so it can be shared.
   useEffect(() => {
-    const to = href({ page: "document", id: caseId, fileId, page_no: current });
+    const to = href({ page: "document", id: caseId, fileId, page_no: current, q });
     if (location.pathname + location.search !== to) history.replaceState(null, "", to);
-  }, [current, caseId, fileId]);
+  }, [current, caseId, fileId, q]);
+
+  // Mark the words searched for, when opened from search results.
+  const [marks, setMarks] = useState(0);
+  const articleRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const root = articleRef.current;
+    if (!root) return;
+    setMarks(highlight(root, searchWords(q)));
+  }, [sections, q]);
 
   // Start at the page in the address once everything has loaded.
   const started = useRef(false);
@@ -97,7 +106,7 @@ export function DocumentViewer({ caseId, fileId, page }: { caseId: string; fileI
       if (t.closest("input, textarea, select, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "j") go(current + 1);
       else if (e.key === "k") go(current - 1);
-      else if (e.key === "Escape") navigate(href({ page: "case", id: caseId, tab: "files", folder: "" }));
+      else if (e.key === "Escape") navigate(q ? href({ page: "case", id: caseId, tab: "search", folder: "", q }) : href({ page: "case", id: caseId, tab: "files", folder: "" }));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -114,7 +123,7 @@ export function DocumentViewer({ caseId, fileId, page }: { caseId: string; fileI
   }
   if (!file.data) return <div className="page"><div className="skeleton__title" /><Skeleton rows={10} /></div>;
   const f = file.data;
-  const back = href({ page: "case", id: caseId, tab: "files", folder: f.folder });
+  const back = q ? href({ page: "case", id: caseId, tab: "search", folder: "", q }) : href({ page: "case", id: caseId, tab: "files", folder: f.folder });
   const canEdit = theCase.data?.permissions?.edit ?? false;
 
   const reconvert = async (ocr: boolean) => {
@@ -135,7 +144,7 @@ export function DocumentViewer({ caseId, fileId, page }: { caseId: string; fileI
     <div className="viewer">
       <header className="viewer__head">
         <div className="viewer__title">
-          <Link to={back} className="viewer__back"><Icon name="back" /> <span>{caseName}</span></Link>
+          <Link to={back} className="viewer__back"><Icon name="back" /> <span>{q ? `Search results in ${caseName}` : caseName}</span></Link>
           <h1 className="viewer__name" title={f.name}>{f.name}</h1>
           <p className="viewer__meta">
             <FileStatusBadge file={f} />
@@ -167,6 +176,12 @@ export function DocumentViewer({ caseId, fileId, page }: { caseId: string; fileI
           {f.warnings.map((w) => <li key={w}><Icon name="warn" /> {w}</li>)}
         </ul>
       )}
+      {q && (
+        <p className="viewer__search" role="status">
+          <Icon name="search" /> <span>{marks ? `${marks.toLocaleString()} ${marks === 1 ? "match" : "matches"} for` : "No exact matches for"} <strong>{q}</strong>{marks ? " marked below." : ". The passage was found by meaning."}</span>
+          <Link to={href({ page: "document", id: caseId, fileId, page_no: current })}>Clear</Link>
+        </p>
+      )}
       {showFm && doc.data && <pre className="frontmatter" aria-label="Front matter">{doc.data.front_matter}</pre>}
 
       <div className="viewer__tabs" role="tablist" aria-label="Show">
@@ -188,7 +203,7 @@ export function DocumentViewer({ caseId, fileId, page }: { caseId: string; fileI
           ) : !doc.data ? (
             <Skeleton rows={12} />
           ) : (
-            <article className="reader">
+            <article className="reader" ref={articleRef}>
               {sections.map((s, i) => (
                 <div key={i} data-page={s.page ?? undefined} className="reader__page">
                   {s.page !== null && <p className="page-marker" aria-label={`Page ${s.page}`}><span>Page {s.page}</span></p>}
@@ -256,4 +271,47 @@ function Original({ caseId, file, pageCount }: { caseId: string; file: CaseFile;
       </dl>
     </div>
   );
+}
+
+/** The words of a search, without its operators (-left out, OR, quotes, *). */
+export function searchWords(q: string): string[] {
+  const out: string[] = [];
+  for (const tok of q.match(/-?"[^"]*"?|\S+/g) ?? []) {
+    if (tok === "OR" || tok.startsWith("-")) continue;
+    for (const w of tok.replace(/["*]/g, " ").split(/\s+/)) if (w.length > 2) out.push(w);
+  }
+  return out;
+}
+
+/** Wrap each word (and its longer forms) in <mark>, in text only. Returns
+ * how many were marked. */
+function highlight(root: HTMLElement, words: string[]): number {
+  root.querySelectorAll("mark.hl").forEach((m) => m.replaceWith(document.createTextNode(m.textContent ?? "")));
+  root.normalize();
+  if (!words.length) return 0;
+  const re = new RegExp(`\\b(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\w*`, "gi");
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+  let n = 0;
+  for (const node of nodes) {
+    const text = node.data;
+    re.lastIndex = 0;
+    if (!re.test(text)) continue;
+    re.lastIndex = 0;
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    for (const m of text.matchAll(re)) {
+      frag.append(text.slice(last, m.index));
+      const mark = document.createElement("mark");
+      mark.className = "hl";
+      mark.textContent = m[0];
+      frag.append(mark);
+      last = (m.index ?? 0) + m[0].length;
+      n++;
+    }
+    frag.append(text.slice(last));
+    node.replaceWith(frag);
+  }
+  return n;
 }

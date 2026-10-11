@@ -4,28 +4,33 @@ import { useEffect, useState } from "react";
 
 export type Route =
   | { page: "cases" }
-  | { page: "case"; id: string; tab: CaseTab; folder: string }
-  | { page: "document"; id: string; fileId: string; page_no: number }
+  | { page: "case"; id: string; tab: CaseTab; folder: string; q?: string }
+  | { page: "document"; id: string; fileId: string; page_no: number; q?: string }
   | { page: "jobs" }
   | { page: "people" }
   | { page: "audit" }
   | { page: "password" }
   | { page: "not-found" };
 
-export type CaseTab = "files" | "details" | "people" | "activity";
-const TABS: CaseTab[] = ["files", "details", "people", "activity"];
+export type CaseTab = "files" | "search" | "details" | "people" | "activity";
+const TABS: CaseTab[] = ["files", "search", "details", "people", "activity"];
 
 export function parse(pathname: string, search: string): Route {
   const parts = pathname.split("/").filter(Boolean);
   if (parts.length === 0 || (parts.length === 1 && parts[0] === "cases")) return { page: "cases" };
   if (parts[0] === "cases" && parts.length === 4 && parts[2] === "files" && /^[0-9a-f]{32}$/.test(parts[1]) && /^[0-9a-f]{32}$/.test(parts[3])) {
-    const n = Number(new URLSearchParams(search).get("page") ?? "1");
-    return { page: "document", id: parts[1], fileId: parts[3], page_no: Number.isInteger(n) && n > 0 ? n : 1 };
+    const params = new URLSearchParams(search);
+    const n = Number(params.get("page") ?? "1");
+    const route: Route = { page: "document", id: parts[1], fileId: parts[3], page_no: Number.isInteger(n) && n > 0 ? n : 1 };
+    const q = params.get("q");
+    return q ? { ...route, q } : route;
   }
   if (parts[0] === "cases" && parts.length <= 3 && /^[0-9a-f]{32}$/.test(parts[1])) {
     const tab = (parts[2] ?? "files") as CaseTab;
     if (!TABS.includes(tab)) return { page: "not-found" };
-    return { page: "case", id: parts[1], tab, folder: new URLSearchParams(search).get("folder") ?? "" };
+    const params = new URLSearchParams(search);
+    if (tab === "search") return { page: "case", id: parts[1], tab, folder: "", q: params.get("q") ?? "" };
+    return { page: "case", id: parts[1], tab, folder: params.get("folder") ?? "" };
   }
   if (parts.length === 1 && parts[0] === "people") return { page: "people" };
   if (parts.length === 1 && parts[0] === "audit") return { page: "audit" };
@@ -40,10 +45,16 @@ export function href(route: Route): string {
       return "/";
     case "case": {
       const base = `/cases/${route.id}${route.tab === "files" ? "" : `/${route.tab}`}`;
+      if (route.tab === "search") return route.q ? `${base}?q=${encodeURIComponent(route.q)}` : base;
       return route.tab === "files" && route.folder ? `${base}?folder=${encodeURIComponent(route.folder)}` : base;
     }
-    case "document":
-      return `/cases/${route.id}/files/${route.fileId}${route.page_no > 1 ? `?page=${route.page_no}` : ""}`;
+    case "document": {
+      const params = new URLSearchParams();
+      if (route.page_no > 1) params.set("page", String(route.page_no));
+      if (route.q) params.set("q", route.q);
+      const query = params.toString();
+      return `/cases/${route.id}/files/${route.fileId}${query ? `?${query}` : ""}`;
+    }
     case "jobs":
       return "/jobs";
     case "people":

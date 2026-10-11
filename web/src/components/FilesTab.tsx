@@ -438,6 +438,17 @@ function FileDrawer({ caseId, file, canEdit, onClose, onChanged, onOpenOther }: 
             <dd><button className="linkish" onClick={() => onOpenOther(file.parent_id!)}><Icon name="mail" /> The email it came with</button></dd>
           </>
         )}
+        {(file.status === "converted" || file.status === "needs_ocr") && (
+          <>
+            <dt>Search</dt>
+            <dd>
+              {file.search.state === "indexed" ? `Ready (${plural(file.search.passages, "passage")})`
+                : file.search.state === "keyword_only" ? "Exact words only, until the local AI model is running"
+                : file.search.state === "failed" ? "Couldn't be indexed"
+                : "Being prepared"}
+            </dd>
+          </>
+        )}
         <dt>Original path</dt>
         <dd className="mono break">{path}</dd>
         <dt>Type</dt>
@@ -582,7 +593,7 @@ function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, o
   const s1 = total > 0 ? "done" : "current";
   const s2 = total === 0 ? "later" : waiting > 0 ? "current" : "done";
   const s3 = total === 0 || waiting > 0 ? "later" : review > 0 ? "current" : "done";
-  const allDone = total > 0 && waiting === 0 && review === 0;
+  const indexing = progress?.index?.waiting ?? 0;
 
   if (!progress) return <aside className="next" aria-hidden="true" />;
   return (
@@ -630,11 +641,18 @@ function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, o
             )}
           </div>
         </li>
-        <li className={step(allDone ? "current" : "later")}>
-          <Icon name={allDone ? "search" : "lock"} />
+        <li className={step(total > 0 && waiting === 0 ? "current" : "later")}>
+          <Icon name={total > 0 && waiting === 0 ? "search" : "lock"} />
           <div>
-            <p className="next__label">Search and ask</p>
-            <p className="hint">Arrives in the next version.</p>
+            <p className="next__label">Search the case</p>
+            {total > 0 && waiting === 0 ? (
+              <>
+                <Link to={href({ page: "case", id: caseId, tab: "search", folder: "" })}>Search the documents</Link>
+                {indexing > 0 && <p className="hint">{plural(indexing, "file")} still being prepared for search.</p>}
+              </>
+            ) : (
+              <p className="hint">Opens once files are converted.</p>
+            )}
           </div>
         </li>
       </ol>
