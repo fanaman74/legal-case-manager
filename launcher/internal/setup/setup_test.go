@@ -102,3 +102,24 @@ func TestSetupCodeAndURL(t *testing.T) {
 		t.Error("no code expected")
 	}
 }
+
+func TestDesktopAppInstallStaysOne(t *testing.T) {
+	l := newLayout(filepath.Join("C:", "CaseFiles"))
+	o := Defaults()
+	if desktopApp(nil) || desktopApp([]byte("{broken")) {
+		t.Fatal("a missing or broken launcher.json isn't a desktop app install")
+	}
+	o.DesktopApp = true
+	b, err := mergeConfig(nil, l, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !desktopApp(b) || !desktopApp(append([]byte("\xef\xbb\xbf"), b...)) {
+		t.Fatalf("desktop_app not recorded: %s", b)
+	}
+	// A repair from launcher.exe (no flag) keeps it.
+	b, err = mergeConfig(b, l, Defaults())
+	if err != nil || !desktopApp(b) {
+		t.Fatalf("desktop_app lost on repair: %s %v", b, err)
+	}
+}

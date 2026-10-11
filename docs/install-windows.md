@@ -1,6 +1,6 @@
 # Installing Case File Manager on Windows
 
-You double-click one file. After that, everything happens in your browser, including installing Python, OCR and the local AI. There is nothing to type and no PowerShell. No Docker is needed.
+You double-click one file. After that, everything happens in the Case File Manager app, including installing Python, OCR and the local AI. There is nothing to type and no PowerShell. No Docker is needed. Everything runs on this computer.
 
 ## Before you start
 
@@ -11,28 +11,36 @@ You double-click one file. After that, everything happens in your browser, inclu
 
 ## Install
 
-1. Right-click the install zip and choose **Extract All**. Open the extracted folder.
-2. Double-click **Setup.exe**. If Windows shows "Windows protected your PC", choose **More info**, then **Run anyway** (the file isn't code-signed yet).
-3. Windows asks whether to allow changes. Choose **Yes**.
-4. A window shows setup's progress for about a minute, then your browser opens the Control Center at `https://localhost:8443`, already past the setup code.
-5. Your browser warns about the certificate the first time. Choose **Advanced**, then **Continue to localhost**. To stop the warning for good, see [trust-certificate.md](trust-certificate.md).
-6. The **Components** section shows the launcher downloading and installing Python, Tesseract OCR, Ollama and the embedding model. When they're done, it starts every service by itself. Then create your Admin account in the setup wizard.
+1. Double-click **Case File Manager Setup.exe**. If Windows shows "Windows protected your PC", choose **More info**, then **Run anyway** (the file isn't code-signed yet).
+2. Windows asks whether to allow changes. Choose **Yes**.
+3. A progress bar runs for about a minute while the services are set up. Then the app opens, with the Control Center already past the setup code.
+4. The Control Center's **Components** section shows the launcher downloading and installing Python, Tesseract OCR, Ollama and the embedding model. When they're done, it starts every service by itself. Then create your Admin account in the setup wizard.
+5. The case manager window switches from "isn't answering yet" to the sign-in page by itself once the web app is running.
 
-Setup puts a **Case File Manager Control Center** shortcut on the desktop. Use it to open the Control Center from then on.
+There's no certificate warning in the app: it trusts only the certificate authority Case File Manager created on this computer. Colleagues who open the case manager in a browser on another computer still see the warning until they trust the CA once ([trust-certificate.md](trust-certificate.md)).
 
-If the browser opens before you've entered the code (for example after a restart), the code is in `C:\CaseFiles\launcher\setup-code.txt`, which only administrators can open.
+The installer puts **Case File Manager** on the desktop and in the Start menu. Open the Control Center from the app's **File** menu (Ctrl+2) or from the tray icon by the clock. The tray icon is green when the case manager is answering, amber when only the launcher is (services starting or stopped), and red when neither is.
+
+If the Control Center asks for the setup code (for example if the app was closed before you finished), the code is in `C:\CaseFiles\launcher\setup-code.txt`, which only administrators can open.
+
+### Using the app
+
+- Closing the app stops nothing. The services keep running in the background, so conversions and indexing finish and colleagues on other computers can keep working.
+- When background work you started runs out while the app isn't in front, Windows shows a notification. After a download (such as a case export) is saved, a notification offers to show it in its folder.
+- The app only opens this computer's case manager and Control Center. Any other link opens in your normal browser, and the app window never loads anything from the internet.
 
 ## Checking and repairing components
 
 The Control Center's **Components** section lists each program the app needs, its version and whether it's installed. Use **Install**, **Update** or **Reinstall** on a row, or **Install what's missing** for all of them. The launcher stops the services that use a program while it's replaced and starts them again afterwards. It also installs anything missing each time it starts. Every install is recorded in the audit log.
 
-To upgrade, extract the new install zip and double-click its Setup.exe. It keeps your cases, Admin account and audit log. If the new version pins newer programs, the launcher updates them when it starts.
+To upgrade, double-click the newer **Case File Manager Setup.exe**. It keeps your cases, accounts and audit log. The app doesn't update itself, because that would mean checking a server on the internet. If the new version pins newer programs, the launcher updates them when it starts.
 
 ## What gets installed
 
 | Path | Contents | Who can read it |
 |---|---|---|
-| `C:\CaseFiles\launcher.exe` | The launcher and the service host (a copy of Setup.exe; double-click it to repair) | Administrators, SYSTEM and the three app services |
+| `C:\Program Files\Case File Manager\` | The desktop app and a copy of the local CA certificate (public, not secret) | Everyone can read; only administrators can change it |
+| `C:\CaseFiles\launcher.exe` | The launcher and the service host (double-click it to repair) | Administrators, SYSTEM and the three app services |
 | `C:\CaseFiles\app\`, `runtime\` | The web app, Python and Ollama | Administrators, SYSTEM and the three app services |
 | `C:\Program Files\Tesseract-OCR\` | Tesseract OCR (its installer always uses this folder) | Everyone can read; only administrators can change it |
 | `C:\CaseFiles\launcher\` | Admin password hash, audit log, launcher settings and log, verified downloads | Administrators and SYSTEM only |
@@ -63,7 +71,7 @@ The launcher starts with Windows, and it starts the services that were running b
 
 ## Uninstall
 
-Double-click `C:\CaseFiles\uninstall.cmd` and choose **Yes** when Windows asks. It removes the services, firewall rules and desktop shortcut and leaves your case data, audit log and certificates in place. Tesseract OCR stays installed; remove it from *Settings › Apps* if nothing else uses it.
+Open **Settings › Apps**, find **Case File Manager** and choose **Uninstall**. It removes the app, the services, firewall rules and shortcuts and leaves your case data, audit log and certificates in `C:\CaseFiles`. Tesseract OCR stays installed; remove it from *Settings › Apps* if nothing else uses it.
 
 ## Backup
 

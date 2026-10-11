@@ -91,6 +91,9 @@ func dispatch(args []string) error {
 			sf.IntVar(&o.AppPort, "app-port", o.AppPort, "web app port on the network")
 			sf.BoolVar(&o.NoBrowser, "no-browser", false, "don't open the Control Center")
 			sf.StringVar(&o.Handoff, "handoff", "", "write the Control Center address to this file")
+			sf.StringVar(&o.ErrorOut, "error-out", "", "write the reason to this file if setup fails")
+			sf.BoolVar(&o.DesktopApp, "desktop-app", false, "installed by the desktop app: no browser shortcut or uninstall.cmd")
+			sf.StringVar(&o.CAOut, "ca-out", "", "copy the local CA certificate (public) to this file")
 		}
 		if err := sf.Parse(rest[1:]); err != nil {
 			return err

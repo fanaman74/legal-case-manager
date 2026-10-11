@@ -3,6 +3,8 @@
 # screens (served by the API from services/api/app/web).
 #   scripts/build.sh            -> dist/launcher (this platform)
 #   scripts/build.sh windows    -> dist/windows/ (Setup.exe, the app and the install notes)
+#   scripts/build.sh desktop    -> dist/desktop/Case File Manager Setup <version>.exe, the
+#                                  desktop app with dist/windows inside (build it on Windows)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 VERSION="${VERSION:-0.1.0-dev}"
@@ -12,7 +14,7 @@ VERSION="${VERSION:-0.1.0-dev}"
 touch launcher/internal/web/dist/.gitkeep
 
 LDFLAGS="-s -w -X github.com/fanaman74/legal-case-manager/launcher/internal/server.Version=${VERSION}"
-if [[ "${1:-}" == "windows" ]]; then
+if [[ "${1:-}" == "windows" || "${1:-}" == "desktop" ]]; then
   out=dist/windows
   rm -rf "$out" && mkdir -p "$out"
   (cd launcher && GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o "../$out/Setup.exe" ./cmd/launcher)
@@ -21,7 +23,12 @@ if [[ "${1:-}" == "windows" ]]; then
   find "$out/app" -name __pycache__ -prune -exec rm -rf {} +
   cp docs/install-windows.md "$out/README-install.md"
   cp docs/trust-certificate.md "$out/"
-  echo "Built $out. Copy the folder to the Windows computer and double-click Setup.exe."
+  if [[ "${1:-}" == "desktop" ]]; then
+    (cd desktop && npm ci && npm version --no-git-tag-version --allow-same-version "${VERSION%-dev}" >/dev/null && npm run dist)
+    echo "Built dist/desktop. Double-click \"Case File Manager Setup\" on the Windows computer."
+  else
+    echo "Built $out. Copy the folder to the Windows computer and double-click Setup.exe."
+  fi
 else
   mkdir -p dist
   (cd launcher && go build -trimpath -ldflags "$LDFLAGS" -o ../dist/launcher ./cmd/launcher)

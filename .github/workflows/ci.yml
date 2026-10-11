@@ -42,6 +42,19 @@ jobs:
         working-directory: launcher
         run: GOOS=windows GOARCH=amd64 go build -o /tmp/launcher.exe ./cmd/launcher
 
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Desktop app
+        working-directory: desktop
+        run: npm ci && npm test
+
   api:
     runs-on: ubuntu-latest
     steps:
@@ -112,18 +125,44 @@ jobs:
           cache-dependency-path: |
             control-center/package-lock.json
             web/package-lock.json
-      - name: Build the install folder
+            desktop/package-lock.json
+      - name: Build the installer
         shell: bash
-        run: ./scripts/build.sh windows
+        run: ./scripts/build.sh desktop
       - name: Install
         shell: pwsh
         run: |
-          # The runner is already an administrator, so Setup.exe doesn't ask Windows for permission.
-          .\dist\windows\Setup.exe setup --no-browser
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The runner is already an administrator, so the installer doesn't ask Windows for permission.
+          $setup = Get-ChildItem "dist\desktop\Case File Manager Setup *.exe" | Select-Object -First 1
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/S" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { Write-Host "Installer exit code $($p.ExitCode)"; exit 1 }
+          if (-not (Get-Service CaseFileManagerLauncher -ErrorAction SilentlyContinue)) { Write-Host "The launcher service wasn't registered"; exit 1 }
       - name: Smoke test
         shell: pwsh
-        run: .\scripts\ci\windows-smoke.ps1
+        run: .\scripts\ci\windows-smoke.ps1 -Desktop -Screenshot "$env:RUNNER_TEMP\desktop.png"
+      - name: Uninstall keeps case data
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "$env:ProgramFiles\Case File Manager\Uninstall Case File Manager.exe" -ArgumentList "/S" -Wait
+          # The uninstaller hands over to a copy of itself, so wait for the result.
+          $deadline = (Get-Date).AddMinutes(3)
+          while ((Get-Service CaseFileManagerLauncher -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
+          $fail = @()
+          if (Get-Service CaseFileManagerLauncher, CaseFiles-api, CaseFiles-worker, CaseFiles-models -ErrorAction SilentlyContinue) { $fail += "services still registered" }
+          if (Get-NetFirewallRule -DisplayName "Case File Manager*" -ErrorAction SilentlyContinue) { $fail += "firewall rules still there" }
+          if (Test-Path "$env:PUBLIC\Desktop\Case File Manager.lnk") { $fail += "desktop shortcut still there" }
+          if (-not (Test-Path "C:\CaseFiles\data") -or -not (Test-Path "C:\CaseFiles\launcher\audit.jsonl")) { $fail += "case data or audit log removed" }
+          if ($fail) { $fail | ForEach-Object { Write-Host "FAIL $_" }; exit 1 }
+          Write-Host "Uninstall removed the app and services and kept case data and the audit log."
+      - name: Upload the installer and screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-installer
+          path: |
+            dist/desktop/Case File Manager Setup *.exe
+            ${{ runner.temp }}/desktop.png
+          if-no-files-found: ignore
       - name: Show logs
         if: always()
         shell: pwsh

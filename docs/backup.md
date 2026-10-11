@@ -8,10 +8,10 @@ Everything the app knows lives in three folders under `C:\CaseFiles`. Back them 
 |---|---|---|
 | `C:\CaseFiles\data` | Every case: originals, Markdown, page images, search indexes, mailboxes. Also `app.db` (people, cases, files, tags, AI settings and reviews, and the audit log). | **Yes** |
 | `C:\CaseFiles\launcher` | The Admin password, the launcher's own audit log and settings. | **Yes** |
-| `C:\CaseFiles\certs` | The local certificate authority and HTTPS certificate. Without it, every browser has to trust a new certificate after a restore. | **Yes** |
+| `C:\CaseFiles\certs` | The local certificate authority and HTTPS certificate. Without it, the app and every browser have to trust a new certificate after a restore. | **Yes** |
 | `C:\CaseFiles\data\models` | Local AI models. Large, and downloaded again from the Control Center if missing. | Optional |
 | `C:\CaseFiles\data\exports` | Case exports waiting to be downloaded. Deleted after 7 days anyway. | No |
-| `C:\CaseFiles\app`, `runtime`, `logs` | The programs and their logs. Setup.exe puts the programs back. | No |
+| `C:\CaseFiles\app`, `runtime`, `logs` | The programs and their logs. The installer puts the programs back. | No |
 
 The folders hold confidential client material. Back them up only to places at least as secure as this computer: an encrypted external drive (BitLocker To Go), or your firm's backup server. Don't point a sync service such as OneDrive or Dropbox at the live `data` folder: it copies files while they're being written and sends case files to the cloud.
 
@@ -34,7 +34,7 @@ On the same computer, or a new one:
 1. If the app isn't installed there yet, install it as in [install-windows.md](install-windows.md). Whatever Admin account you create in the setup wizard is replaced by your old one when you restore.
 2. In the Control Center, choose **Stop all**.
 3. In File Explorer, replace `C:\CaseFiles\data`, `C:\CaseFiles\launcher` and `C:\CaseFiles\certs` with the copies from the backup.
-4. Double-click `C:\CaseFiles\launcher.exe` (or Setup.exe from the install zip) and choose **Yes**. It repairs the folder permissions for the restored files and starts everything.
+4. Run the Case File Manager installer and choose **Yes** (or double-click `C:\CaseFiles\launcher.exe`). It repairs the folder permissions for the restored files and starts everything.
 5. Sign in as the Admin and check:
    - The **Audit log** page shows "Tamper check passed".
    - A case opens and a document shows its Markdown.
