@@ -13,6 +13,7 @@ import (
 	"github.com/fanaman74/legal-case-manager/launcher/internal/checks"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/components"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/health"
+	"github.com/fanaman74/legal-case-manager/launcher/internal/jobstatus"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/netguard"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/status"
 	"github.com/fanaman74/legal-case-manager/launcher/internal/supervisor"
@@ -47,6 +48,8 @@ type Snapshot struct {
 	Operations  []Operation         `json:"operations"`
 	Wizard      []WizardStep        `json:"wizard"`
 	HasAdmin    bool                `json:"hasAdmin"`
+	// Jobs is the background worker's queue, when it has reported one.
+	Jobs *jobstatus.Status `json:"jobs,omitempty"`
 }
 
 type poller struct {
@@ -197,6 +200,7 @@ func (p *poller) refresh(ctx context.Context) {
 	snap.LAN = s.lanInfo()
 	snap.Operations = s.ops.list()
 	snap.Wizard = wizard(snap)
+	snap.Jobs = jobstatus.Read(s.cfg.DataDir, now)
 
 	p.mu.Lock()
 	p.raw = raw

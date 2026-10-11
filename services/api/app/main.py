@@ -1,5 +1,5 @@
-"""Web app / API: health checks, sign-in, people, cases, file upload and the
-audit log. Every /api route except sign-in needs a signed-in session."""
+"""Web app / API: health checks, sign-in, people, cases, file upload,
+converted documents, background work and the audit log. Every /api route except sign-in needs a signed-in session."""
 
 import ipaddress
 import sqlite3
@@ -10,12 +10,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from . import runtime, settings
-from .routes import audit_log, cases, files, session, users
+from .routes import audit_log, cases, files, session, users, work
 
 cfg = settings.load()
 app = FastAPI(title="Case File Manager", version=cfg.version, docs_url=None, redoc_url=None, openapi_url=None)
 app.state.rt = runtime.Runtime(cfg)
-for module in (session, users, cases, files, audit_log):
+for module in (session, users, cases, files, audit_log, work):
     app.include_router(module.router)
 
 # Locally the app listens on every interface so people on the office network

@@ -103,6 +103,36 @@ $up = AppCall Put "/api/cases/$($case.id)/files?path=Letters%2Fhello.txt" ([Text
 Check ($up.result -eq "stored" -and $up.file.folder -eq "Letters") "a file uploads into the case ($($up.result))"
 $stored = Get-Item "$root\data\cases\$($case.id)\original\$($up.file.id).txt" -ErrorAction SilentlyContinue
 Check ($stored -and $stored.IsReadOnly) "the original is stored read-only in the data folder"
+
+# The worker service (NT SERVICE\CaseFiles-worker, no internet) converts it
+# to Markdown in the background, and reads a picture of text with Tesseract.
+Add-Type -AssemblyName System.Drawing
+$bmp = New-Object System.Drawing.Bitmap 1700, 600
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.Clear([System.Drawing.Color]::White)
+$g.DrawString("The steel never arrived in Leeds", (New-Object System.Drawing.Font "Arial", 40), [System.Drawing.Brushes]::Black, 80, 200)
+$png = New-Object IO.MemoryStream
+$bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
+$scan = AppCall Put "/api/cases/$($case.id)/files?path=Evidence%2Fscan.png" $png.ToArray() "application/octet-stream"
+function WaitConverted($id) {
+  $deadline = (Get-Date).AddMinutes(4)
+  do {
+    $f = AppCall Get "/api/cases/$($case.id)/files/$id"
+    if ($f.status -notin @("queued", "converting")) { return $f }
+    Start-Sleep -Seconds 2
+  } while ((Get-Date) -lt $deadline)
+  return $f
+}
+$f = WaitConverted $up.file.id
+Check ($f.status -eq "converted") "the worker converts the text file to Markdown ($($f.status) $($f.error))"
+$md = AppCall Get "/api/cases/$($case.id)/files/$($up.file.id)/markdown"
+Check ($md.body -match "hello from CI" -and $md.front_matter -match "source_type") "the Markdown has the text and its front matter"
+$f = WaitConverted $scan.file.id
+$md = if ($f.status -eq "converted") { AppCall Get "/api/cases/$($case.id)/files/$($scan.file.id)/markdown" } else { $null }
+Check ($f.ocr -and $md.body -match "steel never arrived") "the worker reads a picture with Tesseract OCR ($($f.status) $($f.error))"
+$jobs = Invoke-RestMethod -Uri "$base/api/status" -WebSession $session -SkipCertificateCheck
+Check ($jobs.jobs -and $jobs.jobs.updated) "the Control Center shows the worker's job counts"
+
 $audit = AppCall Get "/api/audit"
 Check ($audit.tamper_check.intact -and $audit.tamper_check.entries -ge 4) "the audit log records it and passes the tamper check ($($audit.tamper_check.entries) entries)"
 

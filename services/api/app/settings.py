@@ -17,6 +17,9 @@ class Settings:
     tls_cert: str = ""
     tls_key: str = ""
     max_upload_bytes: int = 2 * 2**30
+    ocr_lang: str = "eng"
+    convert_workers: int = 2
+    ollama_url: str = "http://127.0.0.1:11434"
 
     @property
     def run_dir(self) -> Path:
@@ -55,4 +58,7 @@ def load() -> Settings:
         tls_cert=os.environ.get("TLS_CERT", ""),
         tls_key=os.environ.get("TLS_KEY", ""),
         max_upload_bytes=int(os.environ.get("MAX_UPLOAD_MB", "2048")) * 2**20,
+        ocr_lang=os.environ.get("OCR_LANG", "eng"),
+        convert_workers=max(1, min(int(os.environ.get("CONVERT_WORKERS", "0") or 0) or min(2, os.cpu_count() or 1), 8)),
+        ollama_url=os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434"),
     )

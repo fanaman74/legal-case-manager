@@ -99,6 +99,8 @@ func Specs(cfg config.Config, version string) map[catalog.ServiceID]Spec {
 				"PORT="+strconv.Itoa(cfg.AppPort),
 				"TLS_CERT="+filepath.Join(cfg.CertsDir, tlsca.ServerCert),
 				"TLS_KEY="+filepath.Join(cfg.CertsDir, tlsca.ServerKey),
+				// Search turns each question into a vector with the local model.
+				"OLLAMA_URL="+ModelsURL(cfg),
 			)...),
 			LogFile: LogFile(cfg, catalog.API),
 		},
