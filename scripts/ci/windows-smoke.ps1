@@ -143,6 +143,29 @@ $found = AppCall Get "/api/cases/$($case.id)/search?q=steel%20arrived&mode=keywo
 Check ($found.results.Count -ge 1 -and $found.results[0].file.id -eq $scan.file.id) "keyword search finds it"
 $found = AppCall Get "/api/cases/$($case.id)/search?q=metal%20delivery&mode=semantic"
 Check ($found.meaning -eq "on" -and $found.results.Count -ge 1) "meaning search runs on the local model ($($found.meaning))"
+# AI services: an API key is sealed with DPAPI for the web app's account and
+# never shown again, and a request to an online service stops at the
+# confirmation step until the person confirms.
+$key = "sk-ant-ci-not-a-real-key-" + [guid]::NewGuid().ToString("N").Substring(0, 8)
+$p = AppCall Put "/api/settings/ai/providers/claude" (@{ enabled = $true; api_key = $key } | ConvertTo-Json)
+$raw = (Invoke-WebRequest -Uri "$app/api/settings/ai" -Headers @{ Origin = $app } -WebSession $appSession -SkipCertificateCheck -UseBasicParsing).Content
+Check ($p.has_key -and $p.key_hint -eq $key.Substring($key.Length - 4) -and -not $raw.Contains($key)) "an API key is saved and never shown again"
+function ReadShared($path) {
+  if (-not (Test-Path $path)) { return "" }
+  $fs = [IO.File]::Open($path, "Open", "Read", "ReadWrite")
+  try { $buf = New-Object byte[] $fs.Length; [void]$fs.Read($buf, 0, $buf.Length); [Text.Encoding]::ASCII.GetString($buf) } finally { $fs.Dispose() }
+}
+$dbText = (ReadShared "$root\data\app.db") + (ReadShared "$root\data\app.db-wal")
+Check ($dbText.Contains("dpapi:") -and -not $dbText.Contains($key)) "the key is stored sealed with DPAPI, not as text"
+$t = AppCall Post "/api/settings/ai/providers/claude/test" "{}"
+Check ($t.message -notmatch "can't be read") "the web app opens the sealed key to test it ($($t.message))"
+$call = AppCall Post "/api/cases/$($case.id)/ai" (@{ kind = "ask"; question = "Did the steel arrive?"; provider = "claude" } | ConvertTo-Json)
+Check ($call.state -eq "prepared" -and $call.provider.external -and $call.sources.Count -ge 1) "a question shows what would be sent ($($call.sources.Count) passages to $($call.provider.destination))"
+$blocked = $false
+try { AppCall Post "/api/cases/$($case.id)/ai/$($call.id)/send" (@{ confirmed = $false } | ConvertTo-Json) | Out-Null } catch { $blocked = [int]$_.Exception.Response.StatusCode -eq 409 }
+Check $blocked "nothing is sent off this machine without confirmation"
+AppCall Post "/api/cases/$($case.id)/ai/$($call.id)/cancel" "{}" | Out-Null
+
 $jobs = Invoke-RestMethod -Uri "$base/api/status" -WebSession $session -SkipCertificateCheck
 Check ($jobs.jobs -and $jobs.jobs.updated) "the Control Center shows the worker's job counts"
 

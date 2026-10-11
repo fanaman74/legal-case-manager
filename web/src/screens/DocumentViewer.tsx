@@ -166,6 +166,9 @@ export function DocumentViewer({ caseId, fileId, page, q = "" }: { caseId: strin
           <Button size="sm" variant="quiet" onClick={() => setShowFm((v) => !v)}>{showFm ? "Hide front matter" : "Front matter"}</Button>
           {canEdit && f.type === "pdf" && f.scanned_pages.length > 0 && <Button size="sm" icon="ocr" busy={busy} onClick={() => void reconvert(true)}>Run OCR</Button>}
           {canEdit && <Button size="sm" icon="refresh" variant="quiet" busy={busy} onClick={() => void reconvert(false)}>Convert again</Button>}
+          {f.search.state !== "" && f.search.state !== "failed" && (
+            <Link to={href({ page: "case", id: caseId, tab: "review", folder: "", file: fileId })} className="btn btn--quiet btn--sm"><Icon name="spark" /><span>Review with AI</span></Link>
+          )}
           <a className="btn btn--secondary btn--sm" href={api.downloadUrl(caseId, fileId)} download><Icon name="download" /><span>Download original</span></a>
         </div>
       </header>

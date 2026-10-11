@@ -231,6 +231,64 @@ const q = (params: Record<string, string | number | boolean | undefined | null>)
   return out ? `?${out}` : "";
 };
 
+// --- AI services (Ask, Review, Settings) ----------------------------------------
+
+export type AiProviderChoice = { id: string; name: string; destination: string; model: string; external: boolean };
+
+export type AiProvider = AiProviderChoice & {
+  label: string;
+  about: string;
+  enabled: boolean;
+  base_url: string;
+  url_editable: boolean;
+  default_model: string;
+  needs_key: boolean;
+  has_key: boolean;
+  key_hint: string;
+  ready: boolean;
+  tested_at: string | null;
+  test_ok: boolean | null;
+};
+
+export type AiSettings = {
+  providers: AiProvider[];
+  defaults: { ask: string; review: string };
+  local: {
+    running: boolean;
+    installed: string[];
+    available: { model: string; about: string; installed: boolean; download: { state: string; done: number; total: number; error: string } | null }[];
+  };
+  embedding: { model: string; files: number };
+};
+
+export type AiKind = "ask" | "summary" | "chronology" | "relevance" | "extract" | "tags";
+export type AiScope = { type: "case" } | { type: "folder"; folder: string } | { type: "file"; file_id: string };
+
+export type AiSource = { n: number; passage: number; file_id: string; name: string; path: string; page: number | null; heading: string; text: string };
+
+export type AiCall = {
+  id: string;
+  kind: AiKind;
+  label: string;
+  state: "prepared" | "sending" | "done" | "failed" | "cancelled";
+  question: string;
+  scope: AiScope;
+  provider: AiProviderChoice;
+  served_model: string | null;
+  sources: AiSource[];
+  documents: number;
+  note: string;
+  answer: string;
+  cited: number[];
+  cut_short: boolean;
+  suggestions: { file_id: string; name: string; document_type: string; tags: string[] }[] | null;
+  accepted: Record<string, string[]>;
+  error: string;
+  username: string;
+  created_at: string;
+  finished_at: string | null;
+};
+
 export type UploadResult =
   | { result: "stored"; file: CaseFile }
   | { result: "duplicate"; detail: string; existing: CaseFile }
@@ -321,6 +379,20 @@ export const api = {
       signal?.addEventListener("abort", () => xhr.abort());
       xhr.send(file);
     }),
+
+  aiChoices: () => request<{ providers: AiProviderChoice[]; defaults: { ask: string; review: string } }>("GET", "/api/ai/providers"),
+  aiPrepare: (id: string, body: { kind: AiKind; question?: string; scope?: AiScope; provider?: string }) => request<AiCall>("POST", `/api/cases/${id}/ai`, body),
+  aiSend: (id: string, callId: string, confirmed: boolean) => request<AiCall>("POST", `/api/cases/${id}/ai/${callId}/send`, { confirmed }),
+  aiCancel: (id: string, callId: string) => request<{ ok: boolean }>("POST", `/api/cases/${id}/ai/${callId}/cancel`),
+  aiHistory: (id: string, kind: "ask" | "review") => request<{ items: AiCall[] }>("GET", `/api/cases/${id}/ai${q({ kind })}`),
+  aiAccept: (id: string, callId: string, file_id: string, tag: string) => request<AiCall>("POST", `/api/cases/${id}/ai/${callId}/accept`, { file_id, tag }),
+  aiSettings: () => request<AiSettings>("GET", "/api/settings/ai"),
+  editAiProvider: (providerId: string, body: { enabled?: boolean; base_url?: string; model?: string; api_key?: string; remove_key?: boolean }) =>
+    request<AiProvider>("PUT", `/api/settings/ai/providers/${providerId}`, body),
+  testAiProvider: (providerId: string) => request<{ ok: boolean; message: string; models: string[]; provider: AiProvider }>("POST", `/api/settings/ai/providers/${providerId}/test`),
+  setAiDefaults: (body: { ask: string; review: string }) => request<{ ask: string; review: string }>("PUT", "/api/settings/ai/defaults", body),
+  downloadLocalModel: (model: string) => request<{ queued: boolean }>("POST", "/api/settings/ai/local-models", { model }),
+  reindexAll: () => request<{ queued: number }>("POST", "/api/settings/ai/reindex"),
 
   people: () => request<{ items: Person[] }>("GET", "/api/users"),
   addPerson: (body: { username: string; display_name: string; role: Role; case_ids: string[] }) =>

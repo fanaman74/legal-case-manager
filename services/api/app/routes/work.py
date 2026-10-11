@@ -57,7 +57,7 @@ def list_jobs(
                 "case_id": r["case_id"],
                 "case_name": r["case_name"],
                 "file_id": r["file_id"],
-                "file": "/".join(p for p in (r["file_folder"], r["file_name"]) if p) if r["file_name"] else r["mailbox_name"],
+                "file": "/".join(p for p in (r["file_folder"], r["file_name"]) if p) if r["file_name"] else r["mailbox_name"] or json.loads(r["options"] or "{}").get("model"),
                 "error": r["error"],
                 "attempts": r["attempts"],
                 "done": r["done"],

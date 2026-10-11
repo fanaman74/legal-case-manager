@@ -81,6 +81,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
                 <RailLink to="/people" icon="user" label="People" active={route.page === "people"} />
                 <RailLink to="/jobs" icon="jobs" label="Jobs" active={route.page === "jobs"} />
                 <RailLink to="/audit" icon="shield" label="Audit log" active={route.page === "audit"} />
+                <RailLink to="/settings" icon="gear" label="Settings" active={route.page === "settings"} />
                 {cc && (
                   <li>
                     <a className="rail__link" href={cc} target="_blank" rel="noreferrer">
@@ -111,7 +112,7 @@ function RailLink({ to, icon, label, active }: { to: string; icon: IconName; lab
   );
 }
 
-const VERBS: Record<string, string> = { convert: "Converting", index: "Indexing", pst: "Reading mailbox", export: "Exporting" };
+const VERBS: Record<string, string> = { convert: "Converting", index: "Indexing", pst: "Reading mailbox", pst_add: "Adding emails", export: "Exporting", model: "Downloading AI model" };
 
 /** "Converting 12 of 80 files": background work in the person's own cases.
  * Fixed width, so updates never move the top bar. */
@@ -143,7 +144,9 @@ function WorkStatus() {
   if (active) {
     const [kind, k] = active;
     const left = k.queued + k.running;
-    text = kind === "pst" && k.total ? `${VERBS[kind]}: ${k.done.toLocaleString()} of ${k.total.toLocaleString()} emails` : `${VERBS[kind] ?? "Working"}: ${left.toLocaleString()} ${left === 1 ? "file" : "files"} to go`;
+    if (kind === "model") text = k.total ? `${VERBS[kind]}: ${Math.round((k.done / k.total) * 100)}%` : VERBS[kind];
+    else if (kind === "pst" && k.total) text = `${VERBS[kind]}: ${k.done.toLocaleString()} of ${k.total.toLocaleString()} emails`;
+    else text = `${VERBS[kind] ?? "Working"}: ${left.toLocaleString()} ${left === 1 ? "file" : "files"} to go`;
   }
   return (
     <div className="workstatus" role="status" aria-live="polite">

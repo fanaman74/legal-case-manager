@@ -44,6 +44,9 @@ const paths = {
   ocr: <><path d="M1.5 5V2.5a1 1 0 011-1H5M11 1.5h2.5a1 1 0 011 1V5M14.5 11v2.5a1 1 0 01-1 1H11M5 14.5H2.5a1 1 0 01-1-1V11" /><path d="M5 6h6M5 8h6M5 10h4" /></>,
   back: <path d="M10 3L5 8l5 5" />,
   jobs: <><path d="M2 4h12M2 8h12M2 12h7" /><circle cx="12.5" cy="12" r="1.5" /></>,
+  spark: <><path d="M7 1.8l1.3 3.4 3.4 1.3-3.4 1.3L7 11.2 5.7 7.8 2.3 6.5l3.4-1.3z" /><path d="M12.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" /></>,
+  gear: <><circle cx="8" cy="8" r="2.2" /><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" /></>,
+  send: <path d="M14.5 1.5L7 9M14.5 1.5l-4.5 13-3-5.5-5.5-3z" />,
 } as const;
 
 export type IconName = keyof typeof paths;

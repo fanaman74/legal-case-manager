@@ -178,6 +178,15 @@ class CaseIndex:
         with closing(db):
             return [dict(r) for r in db.execute("SELECT id, seq, page, heading, text FROM chunks WHERE file_id = ? ORDER BY seq", (file_id,))]
 
+    def by_ids(self, ids: list[int]) -> dict[int, dict]:
+        """Passages by id (for Ask: the full text of the passages a search found)."""
+        db = self._read()
+        if db is None or not ids:
+            return {}
+        with closing(db):
+            return {r["id"]: dict(r) for r in db.execute(
+                f"SELECT id, file_id, seq, page, heading, text FROM chunks WHERE id IN ({','.join('?' * len(ids))})", [int(i) for i in ids])}
+
     def stats(self) -> dict:
         db = self._read()
         if db is None:

@@ -644,10 +644,13 @@ function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, o
         <li className={step(total > 0 && waiting === 0 ? "current" : "later")}>
           <Icon name={total > 0 && waiting === 0 ? "search" : "lock"} />
           <div>
-            <p className="next__label">Search the case</p>
+            <p className="next__label">Search or ask</p>
             {total > 0 && waiting === 0 ? (
               <>
-                <Link to={href({ page: "case", id: caseId, tab: "search", folder: "" })}>Search the documents</Link>
+                <p className="btn-row">
+                  <Link to={href({ page: "case", id: caseId, tab: "search", folder: "" })}>Search the documents</Link>
+                  <Link to={href({ page: "case", id: caseId, tab: "ask", folder: "" })}>Ask a question</Link>
+                </p>
                 {indexing > 0 && <p className="hint">{plural(indexing, "file")} still being prepared for search.</p>}
               </>
             ) : (
