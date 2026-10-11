@@ -95,6 +95,38 @@ export type SearchResponse = {
   index: { indexed: number; keyword_only: number; waiting: number; failed: number };
 };
 
+export type Mailbox = {
+  id: string;
+  name: string;
+  size: number;
+  sha256: string;
+  status: "queued" | "indexing" | "ready" | "failed";
+  error: string;
+  emails: number;
+  done: number;
+  total: number;
+  added_at: string;
+  added_by: string | null;
+  added_to_case: number;
+  folders?: { path: string; messages: number }[];
+};
+export type MailFilters = { q?: string; sender?: string; to?: string; folder?: string; date_from?: string; date_to?: string; attachments?: boolean; sort?: "relevance" | "newest" | "oldest" };
+export type MailRow = { id: number; folder: string; kind: string; subject: string; sender: string; to: string; date: string | null; attachments: number; snippet: string; in_case: string | null };
+export type Mail = {
+  id: number;
+  folder: string;
+  kind: string;
+  subject: string;
+  sender: string;
+  to: string[];
+  cc: string[];
+  date: string | null;
+  message_id: string;
+  body: string;
+  attachments: { name: string; size: number; embedded: boolean }[];
+  in_case: string | null;
+};
+
 export type Job = {
   id: number;
   kind: string;
@@ -253,6 +285,42 @@ export const api = {
       throw e;
     }
   },
+
+  mailboxes: (id: string) => request<{ items: Mailbox[] }>("GET", `/api/cases/${id}/mailboxes`),
+  mailbox: (id: string, mailboxId: string) => request<Mailbox>("GET", `/api/cases/${id}/mailboxes/${mailboxId}`),
+  searchMailbox: (id: string, mailboxId: string, f: MailFilters, offset: number, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ offset: String(offset), limit: "200" });
+    for (const [k, v] of Object.entries(f)) if (v) params.set(k, String(v));
+    return request<{ items: MailRow[]; total: number; terms: string[] }>("GET", `/api/cases/${id}/mailboxes/${mailboxId}/search?${params}`, undefined, { signal });
+  },
+  mail: (id: string, mailboxId: string, messageId: number) => request<Mail>("GET", `/api/cases/${id}/mailboxes/${mailboxId}/messages/${messageId}`),
+  addMail: (id: string, mailboxId: string, messages: number[], attachments: boolean) =>
+    request<{ queued: number; already_in_case: number }>("POST", `/api/cases/${id}/mailboxes/${mailboxId}/add`, { messages, attachments }),
+  deleteMailbox: (id: string, mailboxId: string) => request<void>("POST", `/api/cases/${id}/mailboxes/${mailboxId}/delete`),
+  /** Uploads a mailbox with progress (they can be many gigabytes). */
+  uploadMailbox: (id: string, file: File, onProgress: (sent: number) => void, signal?: AbortSignal) =>
+    new Promise<Mailbox>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", `/api/cases/${id}/mailboxes${q({ name: file.name })}`);
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      if (csrf) xhr.setRequestHeader("X-CSRF-Token", csrf);
+      xhr.upload.onprogress = (e) => onProgress(e.loaded);
+      xhr.onload = () => {
+        let body: { mailbox?: Mailbox; detail?: string } = {};
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          // not JSON
+        }
+        if (xhr.status === 201 && body.mailbox) resolve(body.mailbox);
+        else reject(new ApiError(xhr.status, body.detail ?? messageFor(xhr.status)));
+      };
+      xhr.onerror = () => reject(new ApiError(0, messageFor(0)));
+      xhr.onabort = () => reject(new DOMException("Cancelled", "AbortError"));
+      signal?.addEventListener("abort", () => xhr.abort());
+      xhr.send(file);
+    }),
 
   people: () => request<{ items: Person[] }>("GET", "/api/users"),
   addPerson: (body: { username: string; display_name: string; role: Role; case_ids: string[] }) =>

@@ -11,9 +11,9 @@ import sqlite3
 from . import audit
 from .db import Database
 
-KINDS = ("convert", "index", "pst", "export")
+KINDS = ("convert", "index", "pst", "pst_add", "export")
 # How the status banner and Control Center name each kind of job.
-LABELS = {"convert": "Conversion", "index": "Indexing", "pst": "Mailbox", "export": "Export"}
+LABELS = {"convert": "Conversion", "index": "Indexing", "pst": "Reading mailbox", "pst_add": "Adding emails", "export": "Export"}
 
 
 def enqueue(db: sqlite3.Connection, kind: str, case_id: str | None, file_id: str | None = None, options: dict | None = None, user: dict | None = None) -> int | None:

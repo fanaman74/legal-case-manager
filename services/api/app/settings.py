@@ -21,6 +21,7 @@ class Settings:
     convert_workers: int = 2
     ollama_url: str = "http://127.0.0.1:11434"
     embed_model: str = "bge-m3"
+    max_mailbox_bytes: int = 50 * 2**30
 
     @property
     def run_dir(self) -> Path:
@@ -63,4 +64,5 @@ def load() -> Settings:
         convert_workers=max(1, min(int(os.environ.get("CONVERT_WORKERS", "0") or 0) or min(2, os.cpu_count() or 1), 8)),
         ollama_url=os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434"),
         embed_model=os.environ.get("EMBED_MODEL", "bge-m3"),
+        max_mailbox_bytes=int(os.environ.get("MAX_MAILBOX_GB", "50")) * 2**30,
     )

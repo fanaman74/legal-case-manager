@@ -13,7 +13,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from . import indexing, jobs, pipeline, settings
+from . import indexing, jobs, mailboxes, pipeline, settings
 from .runtime import Runtime
 
 INTERVAL = 5
@@ -59,14 +59,20 @@ def extra_status(rt: Runtime) -> dict:
 
 
 # Kinds of work and the function that does each job.
-HANDLERS: dict[str, Callable[[Runtime, dict], None]] = {"convert": pipeline.run_convert, "index": indexing.run_index}
+HANDLERS: dict[str, Callable[[Runtime, dict], None]] = {
+    "convert": pipeline.run_convert,
+    "index": indexing.run_index,
+    "pst": mailboxes.run_index,
+    "pst_add": mailboxes.run_add,
+}
 
 
 def lanes(cfg: settings.Settings) -> list[tuple[str, ...]]:
     """Which job kinds each worker thread takes."""
     # Indexing has one thread: the local model works on one request at a
     # time anyway, and each case's index has one writer.
-    return [("convert",)] * cfg.convert_workers + [("index",)]
+    # Mailboxes have their own thread, so a large PST never holds up uploads.
+    return [("convert",)] * cfg.convert_workers + [("index",), ("pst_add", "pst")]
 
 
 def run_lane(rt: Runtime, kinds: tuple[str, ...], stop: threading.Event) -> None:
@@ -87,6 +93,8 @@ def run_lane(rt: Runtime, kinds: tuple[str, ...], stop: threading.Event) -> None
             try:
                 with rt.db.transaction() as db:
                     jobs.fail(db, job["id"], "Something went wrong in the background worker. Retry it; if it keeps failing, the Admin can check the worker's log in the Control Center.")
+                    if job["kind"] == "pst":
+                        db.execute("UPDATE mailboxes SET status = 'failed', error = ? WHERE id = ?", ("The worker couldn't read this mailbox. Retry it from the Jobs page; if it keeps failing, the Admin can check the worker's log in the Control Center.", job["options"].get("mailbox")))
                     if job["kind"] == "convert" and job["file_id"]:
                         db.execute("UPDATE files SET status = 'failed', error = ? WHERE id = ?", ("The worker couldn't convert this file. Retry it; if it keeps failing, the Admin can check the worker's log in the Control Center.", job["file_id"]))
             except Exception:

@@ -51,6 +51,17 @@ class Storage:
     def preview(self, case_id: str, file_id: str, page: int) -> Path:
         return self.previews(case_id, file_id) / f"p{int(page):04d}.jpg"
 
+    def mailbox(self, case_id: str, mailbox_id: str, ext: str) -> Path:
+        return self.case_dir(case_id) / "mailboxes" / f"{_check_id(mailbox_id)}{ext}"
+
+    def mailbox_db(self, case_id: str, mailbox_id: str) -> Path:
+        return self.case_dir(case_id) / "mailboxes" / f"{_check_id(mailbox_id)}.db"
+
+    def incoming_mailbox(self, case_id: str) -> Path:
+        folder = self.case_dir(case_id) / "mailboxes"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder / f".incoming-{secrets.token_hex(8)}"
+
     def work_dir(self, case_id: str) -> Path:
         """A scratch folder for one conversion, on the case's disk."""
         folder = self.case_dir(case_id) / f".work-{secrets.token_hex(8)}"

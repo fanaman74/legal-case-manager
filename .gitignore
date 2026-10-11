@@ -19,3 +19,4 @@ __pycache__/
 services/api/app/web/
 web/node_modules/
 web/dist/
+services/api/tests/samples/download/

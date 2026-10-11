@@ -12,8 +12,8 @@ export type Route =
   | { page: "password" }
   | { page: "not-found" };
 
-export type CaseTab = "files" | "search" | "details" | "people" | "activity";
-const TABS: CaseTab[] = ["files", "search", "details", "people", "activity"];
+export type CaseTab = "files" | "search" | "email" | "details" | "people" | "activity";
+const TABS: CaseTab[] = ["files", "search", "email", "details", "people", "activity"];
 
 export function parse(pathname: string, search: string): Route {
   const parts = pathname.split("/").filter(Boolean);

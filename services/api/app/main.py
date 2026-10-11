@@ -10,12 +10,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from . import runtime, settings
-from .routes import audit_log, cases, files, search, session, users, work
+from .routes import audit_log, cases, files, mailboxes, search, session, users, work
 
 cfg = settings.load()
 app = FastAPI(title="Case File Manager", version=cfg.version, docs_url=None, redoc_url=None, openapi_url=None)
 app.state.rt = runtime.Runtime(cfg)
-for module in (session, users, cases, files, search, audit_log, work):
+for module in (session, users, cases, files, search, mailboxes, audit_log, work):
     app.include_router(module.router)
 
 # Locally the app listens on every interface so people on the office network
