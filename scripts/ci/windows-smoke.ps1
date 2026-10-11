@@ -210,7 +210,7 @@ Check ($out.Action -eq "Block" -and ($out | Get-NetFirewallServiceFilter).Servic
 if ($Desktop) {
   # Where the installer put the app, from its Settings › Apps entry.
   $entry = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Where-Object DisplayName -like "Case File Manager*" | Select-Object -First 1
-  $appDir = $entry.InstallLocation
+  $appDir = Split-Path ($entry.UninstallString -replace '^"([^"]+)".*$', '$1')
   Check ([bool]$appDir -and (Test-Path "$appDir\CaseFileManager.exe")) "the app is listed in Settings › Apps ($appDir)"
   Check (Test-Path "$env:PUBLIC\Desktop\Case File Manager.lnk") "desktop shortcut to the app"
   Check (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Case File Manager.lnk") "Start menu shortcut to the app"

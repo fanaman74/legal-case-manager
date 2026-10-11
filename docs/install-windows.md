@@ -39,7 +39,7 @@ To upgrade, double-click the newer **Case File Manager Setup.exe**. It keeps you
 
 | Path | Contents | Who can read it |
 |---|---|---|
-| `C:\Program Files\Case File Manager\` | The desktop app and a copy of the local CA certificate (public, not secret) | Everyone can read; only administrators can change it |
+| `C:\Program Files\CaseFileManager\` | The desktop app and a copy of the local CA certificate (public, not secret) | Everyone can read; only administrators can change it |
 | `C:\CaseFiles\launcher.exe` | The launcher and the service host (double-click it to repair) | Administrators, SYSTEM and the three app services |
 | `C:\CaseFiles\app\`, `runtime\` | The web app, Python and Ollama | Administrators, SYSTEM and the three app services |
 | `C:\Program Files\Tesseract-OCR\` | Tesseract OCR (its installer always uses this folder) | Everyone can read; only administrators can change it |
