@@ -112,7 +112,7 @@ function RailLink({ to, icon, label, active }: { to: string; icon: IconName; lab
   );
 }
 
-const VERBS: Record<string, string> = { convert: "Converting", index: "Indexing", pst: "Reading mailbox", pst_add: "Adding emails", export: "Exporting", model: "Downloading AI model" };
+const VERBS: Record<string, string> = { convert: "Converting", index: "Indexing", pst: "Reading mailbox", pst_add: "Adding emails", export: "Exporting a case", dups: "Finding near-duplicates", model: "Downloading AI model" };
 
 /** "Converting 12 of 80 files": background work in the person's own cases.
  * Fixed width, so updates never move the top bar. */
@@ -144,7 +144,7 @@ function WorkStatus() {
   if (active) {
     const [kind, k] = active;
     const left = k.queued + k.running;
-    if (kind === "model") text = k.total ? `${VERBS[kind]}: ${Math.round((k.done / k.total) * 100)}%` : VERBS[kind];
+    if (kind === "model" || kind === "export" || kind === "dups") text = k.total ? `${VERBS[kind]}: ${Math.round((k.done / k.total) * 100)}%` : VERBS[kind];
     else if (kind === "pst" && k.total) text = `${VERBS[kind]}: ${k.done.toLocaleString()} of ${k.total.toLocaleString()} emails`;
     else text = `${VERBS[kind] ?? "Working"}: ${left.toLocaleString()} ${left === 1 ? "file" : "files"} to go`;
   }

@@ -11,6 +11,10 @@ const ACTIONS: [string, string][] = [
   ["case.", "Cases"],
   ["file.", "Files"],
   ["file.download", "Downloads"],
+  ["ai.", "AI requests"],
+  ["mailbox.", "Mailboxes"],
+  ["case.export", "Case exports"],
+  ["settings.", "Settings"],
 ];
 
 export function AuditLog() {

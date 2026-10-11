@@ -21,3 +21,10 @@ export function FileStatusBadge({ file }: { file: CaseFile }) {
       return <Badge tone="idle" icon="pending">{String(file.status)}</Badge>;
   }
 }
+
+/** Shown beside the status when the text is almost the same as an earlier file. */
+export function NearDuplicateBadge({ file }: { file: CaseFile }) {
+  if (!file.near_duplicate) return null;
+  const pct = Math.round(file.near_duplicate.similarity * 100);
+  return <Badge tone="dup" icon="dup" title={`About ${pct}% the same text as ${file.near_duplicate.name}`}>Near-duplicate</Badge>;
+}

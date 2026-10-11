@@ -67,7 +67,7 @@ Double-click `C:\CaseFiles\uninstall.cmd` and choose **Yes** when Windows asks. 
 
 ## Backup
 
-Back up the whole `C:\CaseFiles` folder while the services are stopped (Control Center › Stop all). The `data` folder holds the cases; the `launcher` and `certs` folders hold the audit log and certificates.
+Back up `C:\CaseFiles\data`, `launcher` and `certs` every working day, with the app stopped from the Control Center. [backup.md](backup.md) says how, how to restore, and what to check afterwards.
 
 ## Known limits in this version
 

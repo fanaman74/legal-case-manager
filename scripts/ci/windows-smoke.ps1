@@ -166,6 +166,24 @@ try { AppCall Post "/api/cases/$($case.id)/ai/$($call.id)/send" (@{ confirmed = 
 Check $blocked "nothing is sent off this machine without confirmation"
 AppCall Post "/api/cases/$($case.id)/ai/$($call.id)/cancel" "{}" | Out-Null
 
+# The worker (a restricted account) builds a case export the Admin downloads.
+$exp = AppCall Post "/api/cases/$($case.id)/exports" "{}"
+$deadline = (Get-Date).AddMinutes(3)
+do {
+  Start-Sleep -Seconds 3
+  $exp = (AppCall Get "/api/cases/$($case.id)/exports").items | Where-Object id -eq $exp.id
+} while ($exp.state -in @("queued", "building") -and (Get-Date) -lt $deadline)
+Check ($exp.state -eq "ready") "the worker builds a case export ($($exp.state) $($exp.error))"
+if ($exp.state -eq "ready") {
+  $zipPath = Join-Path ([IO.Path]::GetTempPath()) "case-export.zip"
+  Invoke-WebRequest -Uri "$app/api/cases/$($case.id)/exports/$($exp.id)/file" -Headers @{ Origin = $app } -WebSession $appSession -SkipCertificateCheck -OutFile $zipPath
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
+  try { $names = @($zip.Entries | ForEach-Object FullName) } finally { $zip.Dispose() }
+  $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
+  Check ($hash -eq $exp.sha256 -and $names -contains "manifest-sha256.txt" -and $names -contains "audit/case-audit-trail.csv" -and ($names | Where-Object { $_ -like "originals/*" })) "the export downloads and opens in Windows ($($names.Count) files)"
+}
+
 $jobs = Invoke-RestMethod -Uri "$base/api/status" -WebSession $session -SkipCertificateCheck
 Check ($jobs.jobs -and $jobs.jobs.updated) "the Control Center shows the worker's job counts"
 
