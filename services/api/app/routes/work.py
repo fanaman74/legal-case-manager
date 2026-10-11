@@ -2,6 +2,8 @@
 everyone, limited to their cases) and the job list with failures and Retry
 (Admin)."""
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from .. import access, accounts, audit, jobs, runtime
@@ -38,8 +40,9 @@ def list_jobs(
         where, args = "WHERE j.state = ?", [state]
     with rt.db.connect() as db:
         rows = db.execute(
-            f"""SELECT j.*, c.name AS case_name, f.name AS file_name, f.folder AS file_folder
+            f"""SELECT j.*, c.name AS case_name, f.name AS file_name, f.folder AS file_folder, m.name AS mailbox_name
                 FROM jobs j LEFT JOIN cases c ON c.id = j.case_id LEFT JOIN files f ON f.id = j.file_id
+                LEFT JOIN mailboxes m ON m.id = json_extract(j.options, '$.mailbox')
                 {where} ORDER BY CASE j.state WHEN 'running' THEN 0 WHEN 'failed' THEN 1 WHEN 'queued' THEN 2 ELSE 3 END, j.id DESC LIMIT ?""",
             [*args, limit],
         ).fetchall()
@@ -54,7 +57,7 @@ def list_jobs(
                 "case_id": r["case_id"],
                 "case_name": r["case_name"],
                 "file_id": r["file_id"],
-                "file": "/".join(p for p in (r["file_folder"], r["file_name"]) if p) if r["file_name"] else None,
+                "file": "/".join(p for p in (r["file_folder"], r["file_name"]) if p) if r["file_name"] else r["mailbox_name"],
                 "error": r["error"],
                 "attempts": r["attempts"],
                 "done": r["done"],
@@ -80,5 +83,7 @@ def retry(job_id: int, request: Request, user: dict = Depends(accounts.admin_use
         db.execute("UPDATE jobs SET state = 'queued', error = '', attempts = 0, started_at = NULL, finished_at = NULL WHERE id = ?", (job_id,))
         if row["kind"] == "convert" and row["file_id"]:
             db.execute("UPDATE files SET status = 'queued', error = '' WHERE id = ?", (row["file_id"],))
+        if row["kind"] == "pst":
+            db.execute("UPDATE mailboxes SET status = 'queued', error = '' WHERE id = ?", (json.loads(row["options"] or "{}").get("mailbox"),))
         audit.record(db, action="job.retry", user=user, case_id=row["case_id"], target=jobs.LABELS.get(row["kind"], row["kind"]), detail=f"job {job_id}", ip=accounts.client_ip(request))
     return {"ok": True}

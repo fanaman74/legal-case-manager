@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api, ApiError, type Case } from "../api";
 import { ActivityTab, DetailsTab, PeopleTab } from "../components/CaseTabs";
 import { FilesTab } from "../components/FilesTab";
+import { EmailTab } from "../components/EmailTab";
 import { SearchTab } from "../components/SearchTab";
 import { useApp, useLoad, useTitle } from "../hooks";
 import { href, navigate, type CaseTab } from "../router";
@@ -90,9 +91,9 @@ export function CasePage({ id, tab, folder, q }: { id: string; tab: CaseTab; fol
 
       <Tabs.Root value={tab} onValueChange={(t) => navigate(tabHref(t as CaseTab))} activationMode="manual">
         <Tabs.List className="tabs" aria-label="Case sections">
-          {(["files", "search", "details", "people", "activity"] as CaseTab[]).map((t) => (
+          {(["files", "search", "email", "details", "people", "activity"] as CaseTab[]).map((t) => (
             <Tabs.Trigger key={t} value={t} className="tabs__tab">
-              {{ files: "Files", search: "Search", details: "Details", people: "People", activity: "Activity" }[t]}
+              {{ files: "Files", search: "Search", email: "Email", details: "Details", people: "People", activity: "Activity" }[t]}
             </Tabs.Trigger>
           ))}
         </Tabs.List>
@@ -101,6 +102,9 @@ export function CasePage({ id, tab, folder, q }: { id: string; tab: CaseTab; fol
         </Tabs.Content>
         <Tabs.Content value="search" className="tabs__panel">
           {tab === "search" && <SearchTab caseId={id} q={q} />}
+        </Tabs.Content>
+        <Tabs.Content value="email" className="tabs__panel">
+          {tab === "email" && <EmailTab caseId={id} perms={perms} />}
         </Tabs.Content>
         <Tabs.Content value="details" className="tabs__panel">
           {tab === "details" && <DetailsTab c={c} canEdit={perms.edit} canRename={perms.manage && c.status === "active"} onSaved={(next) => { updated(next); toast("Details saved."); }} />}

@@ -51,9 +51,12 @@ jobs:
           python-version: "3.13"
       - name: Install Tesseract (OCR tests must run, not skip)
         run: sudo apt-get update -q && sudo apt-get install -y -q tesseract-ocr tesseract-ocr-eng
+      - name: Fetch the sample mailbox (pinned SHA-256)
+        run: scripts/ci/fetch-samples.sh
       - working-directory: services/api
         env:
           REQUIRE_OCR: "1"
+          REQUIRE_PST: "1"
         run: pip install -r requirements-dev.txt && pytest -q
       - name: Windows lock file matches requirements.txt
         working-directory: services/api
