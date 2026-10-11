@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { useState, type ReactNode } from "react";
+import { forwardRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { onLinkClick } from "./router";
 
 // ---------------------------------------------------------------------------
@@ -83,37 +83,35 @@ export function Badge({ tone, icon, children, title }: { tone: Tone; icon: IconN
   );
 }
 
-type ButtonProps = {
+type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
   children?: ReactNode;
-  onClick?: () => void;
   variant?: "primary" | "secondary" | "quiet" | "danger";
   size?: "md" | "sm";
   icon?: IconName;
-  disabled?: boolean;
-  title?: string;
   type?: "button" | "submit";
   busy?: boolean;
-  form?: string;
-  "aria-label"?: string;
 };
 
-export function Button({ children, onClick, variant = "secondary", size = "md", icon, disabled, title, type = "button", busy, form, ...rest }: ButtonProps) {
+/** Other props (and the ref) pass through to the <button>, so it can be the
+ * trigger of a menu or dialog. */
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { children, variant = "secondary", size = "md", icon, disabled, type = "button", busy, className, ...rest },
+  ref,
+) {
   return (
     <button
+      {...rest}
+      ref={ref}
       type={type}
-      form={form}
-      className={`btn btn--${variant} btn--${size}${children ? "" : " btn--icon"}`}
-      onClick={onClick}
+      className={`btn btn--${variant} btn--${size}${children ? "" : " btn--icon"}${className ? ` ${className}` : ""}`}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
-      title={title}
-      aria-label={rest["aria-label"]}
     >
       {icon && <Icon name={icon} />}
       {children && <span>{children}</span>}
     </button>
   );
-}
+});
 
 export function Link({ to, children, className }: { to: string; children: ReactNode; className?: string }) {
   return (

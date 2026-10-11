@@ -65,6 +65,21 @@ export type CaseFile = {
   search: { state: "" | "indexed" | "keyword_only" | "failed"; passages: number };
   email: { from: string; to: string[]; cc: string[]; date: string | null; subject: string } | null;
   attachments: { name: string; doc_id: string; duplicate?: boolean }[];
+  near_duplicate: { of: string; name: string; similarity: number } | null;
+};
+
+export type CaseExport = {
+  id: string;
+  state: "queued" | "building" | "ready" | "failed";
+  error: string;
+  size: number | null;
+  sha256: string | null;
+  files: number | null;
+  created_at: string;
+  username: string;
+  finished_at: string | null;
+  expires_at: string | null;
+  progress?: { done: number; total: number };
 };
 
 export type JobCounts = { queued: number; running: number; failed: number; done: number; total: number };
@@ -74,6 +89,7 @@ export type Progress = {
   total: number;
   warnings: number;
   scanned: number;
+  near_duplicates: number;
   jobs: Record<string, JobCounts>;
   index: Partial<Record<"waiting" | "indexed" | "keyword_only" | "failed", number>>;
 };
@@ -324,6 +340,10 @@ export const api = {
   folders: (id: string) => request<{ items: { path: string; files: number }[] }>("GET", `/api/cases/${id}/folders`),
   editFile: (id: string, fileId: string, tags: string[]) => request<CaseFile>("PATCH", `/api/cases/${id}/files/${fileId}`, { tags }),
   downloadUrl: (id: string, fileId: string) => `/api/cases/${id}/files/${fileId}/original`,
+  exports: (id: string) => request<{ items: CaseExport[]; keep_days: number }>("GET", `/api/cases/${id}/exports`),
+  newExport: (id: string) => request<CaseExport>("POST", `/api/cases/${id}/exports`),
+  deleteExport: (id: string, exportId: string) => request<void>("DELETE", `/api/cases/${id}/exports/${exportId}`),
+  exportUrl: (id: string, exportId: string) => `/api/cases/${id}/exports/${exportId}/file`,
   pageUrl: (id: string, fileId: string, page: number) => `/api/cases/${id}/files/${fileId}/pages/${page}`,
   markdown: (id: string, fileId: string) => request<{ front_matter: string; body: string; markdown_sha256: string }>("GET", `/api/cases/${id}/files/${fileId}/markdown`),
   reconvert: (id: string, fileId: string, ocr = false) => request<CaseFile>("POST", `/api/cases/${id}/files/${fileId}/convert`, { ocr }),

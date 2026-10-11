@@ -780,3 +780,19 @@ a.cite:hover { background: var(--ai); color: var(--surface); }
 .aiblock__answer table { display: table; width: 100%; }
 .aiblock__answer th, .aiblock__answer td:first-child { white-space: nowrap; }
 @media (max-width: 640px) { .aiblock__answer table { display: block; } }
+
+/* Phase 7: near-duplicates and case export */
+.exports { display: grid; gap: var(--space-2); }
+.exports__item {
+  display: grid; grid-template-columns: 8.5rem minmax(0, 1fr) auto; align-items: center; gap: var(--space-3);
+  padding: var(--space-3); border: 1px solid var(--rule); border-radius: var(--radius-md);
+}
+.exports__info { display: grid; gap: var(--space-1); min-width: 0; }
+.exports__info .progress-line__bar { max-width: 16rem; }
+@media (max-width: 640px) {
+  .exports__item { grid-template-columns: 1fr; }
+}
+.kv .linkish { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.next__near { margin-top: var(--space-2); }
+.exports__item > .badge { justify-self: start; }
+.cell-name__inner > .badge { flex: none; }

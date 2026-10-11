@@ -5,6 +5,7 @@ import { ActivityTab, DetailsTab, PeopleTab } from "../components/CaseTabs";
 import { AskTab } from "../components/AskTab";
 import { FilesTab } from "../components/FilesTab";
 import { EmailTab } from "../components/EmailTab";
+import { ExportDialog } from "../components/ExportDialog";
 import { ReviewTab } from "../components/ReviewTab";
 import { SearchTab } from "../components/SearchTab";
 import { useApp, useLoad, useTitle } from "../hooks";
@@ -15,6 +16,7 @@ export function CasePage({ id, tab, folder, q, file }: { id: string; tab: CaseTa
   const { reloadCases, toast } = useApp();
   const { data: c, error, loading, reload, setData } = useLoad(() => api.case(id), [id]);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   useTitle(c?.name ?? "Case");
 
@@ -60,6 +62,7 @@ export function CasePage({ id, tab, folder, q, file }: { id: string; tab: CaseTa
       ? { label: "Archive case", icon: "archive", onSelect: () => void run(() => api.archiveCase(id), "Case archived. It's read-only until restored.") }
       : { label: "Restore case", icon: "archive", onSelect: () => void run(() => api.restoreCase(id), "Case restored.") },
     ...(c.status === "active" ? [{ label: "Rebuild search index", icon: "refresh" as const, onSelect: () => void reindex() }] : []),
+    { label: "Export case as ZIP…", icon: "download", onSelect: () => setExporting(true) },
     "separator",
     { label: "Delete case…", icon: "error", danger: true, onSelect: () => setDeleting(true) },
   ];
@@ -125,6 +128,7 @@ export function CasePage({ id, tab, folder, q, file }: { id: string; tab: CaseTa
         </Tabs.Content>
       </Tabs.Root>
 
+      {perms.manage && <ExportDialog caseId={id} caseName={c.name} open={exporting} onOpenChange={setExporting} />}
       {perms.manage && (
         <DeleteCaseDialog
           c={c}

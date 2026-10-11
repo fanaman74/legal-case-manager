@@ -13,7 +13,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from . import indexing, jobs, mailboxes, pipeline, settings
+from . import export, indexing, jobs, mailboxes, neardup, pipeline, settings
 from .ai import calls, local
 from .runtime import Runtime
 
@@ -63,9 +63,11 @@ def extra_status(rt: Runtime) -> dict:
 HANDLERS: dict[str, Callable[[Runtime, dict], None]] = {
     "convert": pipeline.run_convert,
     "index": indexing.run_index,
+    "dups": neardup.run_case,
     "pst": mailboxes.run_index,
     "pst_add": mailboxes.run_add,
     "model": local.run_pull,
+    "export": export.run_export,
 }
 
 
@@ -74,8 +76,9 @@ def lanes(cfg: settings.Settings) -> list[tuple[str, ...]]:
     # Indexing has one thread: the local model works on one request at a
     # time anyway, and each case's index has one writer.
     # Mailboxes have their own thread, so a large PST never holds up uploads.
-    # A local AI model download is one long job, so it has its own thread too.
-    return [("convert",)] * cfg.convert_workers + [("index",), ("pst_add", "pst"), ("model",)]
+    # A local AI model download is one long job, so it has its own thread too,
+    # and so has a case export.
+    return [("convert",)] * cfg.convert_workers + [("index", "dups"), ("pst_add", "pst"), ("model",), ("export",)]
 
 
 def run_lane(rt: Runtime, kinds: tuple[str, ...], stop: threading.Event) -> None:
@@ -96,6 +99,8 @@ def run_lane(rt: Runtime, kinds: tuple[str, ...], stop: threading.Event) -> None
             try:
                 with rt.db.transaction() as db:
                     jobs.fail(db, job["id"], "Something went wrong in the background worker. Retry it; if it keeps failing, the Admin can check the worker's log in the Control Center.")
+                    if job["kind"] == "export":
+                        export.failed(db, job, "The export couldn't be finished. Try again; if it keeps failing, the Admin can check the worker's log in the Control Center.")
                     if job["kind"] == "pst":
                         db.execute("UPDATE mailboxes SET status = 'failed', error = ? WHERE id = ?", ("The worker couldn't read this mailbox. Retry it from the Jobs page; if it keeps failing, the Admin can check the worker's log in the Control Center.", job["options"].get("mailbox")))
                     if job["kind"] == "convert" and job["file_id"]:
@@ -144,6 +149,7 @@ def main() -> int:
             if time.time() - last_tidy > 3600:
                 jobs.tidy(rt.db)
                 calls.tidy(rt)
+                export.tidy(rt)
                 rt.storage.empty_trash()
                 indexing.optimise_all(rt)
                 last_tidy = time.time()

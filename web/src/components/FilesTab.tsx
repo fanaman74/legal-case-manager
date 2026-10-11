@@ -6,7 +6,7 @@ import { useLoad } from "../hooks";
 import { href, onLinkClick } from "../router";
 import { fromDrop, fromInput } from "../upload";
 import { Button, CopyButton, Drawer, ErrorPanel, FormError, Icon, Link, Skeleton } from "../ui";
-import { FileStatusBadge } from "./FileStatus";
+import { FileStatusBadge, NearDuplicateBadge } from "./FileStatus";
 import { DropZone, UploadPanel, useUploader } from "./Uploader";
 
 const PAGE = 500;
@@ -127,6 +127,7 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
                 <option value="converted">Converted</option>
                 <option value="warnings">With warnings</option>
                 <option value="scanned">Scanned, needs OCR</option>
+                <option value="near_duplicate">Near-duplicates</option>
                 <option value="failed">Failed</option>
                 <option value="queued">Waiting</option>
               </select>
@@ -322,6 +323,7 @@ function FileTable({ files, total, sort, setSort, onOpen, onMore, dropTarget }: 
                     <span className="truncate">{f.name}</span>
                   </button>
                   {f.tags.length > 0 && <span className="cell-tags">{f.tags.map((t) => <span key={t} className="chip chip--sm">{t}</span>)}</span>}
+                  <NearDuplicateBadge file={f} />
                   </div>
                 </th>
                 <td className="nowrap"><FileStatusBadge file={f} /></td>
@@ -400,6 +402,18 @@ function FileDrawer({ caseId, file, canEdit, onClose, onChanged, onOpenOther }: 
             <dd className="btn-row">
               {canOcr && <Button size="sm" icon="ocr" busy={busy} onClick={() => void act(() => api.reconvert(caseId, file.id, true))}>Run OCR</Button>}
               {file.status === "failed" && <Button size="sm" icon="refresh" busy={busy} onClick={() => void act(() => api.reconvert(caseId, file.id))}>Retry</Button>}
+            </dd>
+          </>
+        )}
+        {file.near_duplicate && (
+          <>
+            <dt>Near-duplicate</dt>
+            <dd className="kv__stack">
+              <span>
+                About {Math.round(file.near_duplicate.similarity * 100)}% the same text as{" "}
+                <button className="linkish" onClick={() => onOpenOther(file.near_duplicate!.of)}>{file.near_duplicate.name}</button>, which was added earlier.
+              </span>
+              <span className="muted">Often a draft and its final version, or a Word file and its PDF. Nothing was removed; keep the one you need.</span>
             </dd>
           </>
         )}
@@ -575,6 +589,7 @@ function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, o
   const failed = progress?.files.failed ?? 0;
   const scanned = progress?.scanned ?? 0;
   const warnings = progress?.warnings ?? 0;
+  const near = progress?.near_duplicates ?? 0;
   const review = failed + scanned + warnings;
   const run = async (what: "ocr_scanned" | "retry_failed") => {
     setBusy(what);
@@ -619,7 +634,7 @@ function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, o
           <Icon name={s3 === "current" ? "warn" : icon(s3)} />
           <div>
             <p className="next__label">Review problems</p>
-            {s3 !== "current" && <p className="hint">{s3 === "done" ? "Nothing to review." : "Any failures or warnings show here."}</p>}
+            {s3 !== "current" && <p className="hint">{s3 === "done" ? (near > 0 ? "No failures or warnings." : "Nothing to review.") : "Any failures or warnings show here."}</p>}
             {s3 === "current" && (
               <ul className="next__actions">
                 {failed > 0 && (
@@ -638,6 +653,11 @@ function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, o
                   <li><button className="linkish" onClick={() => onFilter("warnings")}>{plural(warnings, "file")} with warnings</button></li>
                 )}
               </ul>
+            )}
+            {near > 0 && waiting === 0 && (
+              <p className="hint next__near">
+                <button className="linkish" onClick={() => onFilter("near_duplicate")}>{plural(near, "near-duplicate")}</button>: almost the same text as an earlier file, worth a look.
+              </p>
             )}
           </div>
         </li>

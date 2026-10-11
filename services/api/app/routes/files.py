@@ -88,10 +88,18 @@ def file_view(row: sqlite3.Row) -> dict:
         "search": {"state": row["index_state"], "passages": row["passages"]},
         "email": {k: meta.get(k) for k in ("from", "to", "cc", "date", "subject")} if row["source_type"] == "email" and meta else None,
         "attachments": meta.get("attachments", []),
+        "near_duplicate": {
+            "of": row["near_dup_of"],
+            "name": "/".join(filter(None, (row["near_folder"], row["near_name"]))) if "near_name" in keys else None,
+            "similarity": round(row["near_dup_score"], 2),
+        } if row["near_dup_of"] else None,
     }
 
 
-_FILE_SELECT = "SELECT f.*, u.display_name AS added_by_name FROM files f LEFT JOIN users u ON u.id = f.added_by"
+_FILE_SELECT = (
+    "SELECT f.*, u.display_name AS added_by_name, nd.name AS near_name, nd.folder AS near_folder"
+    " FROM files f LEFT JOIN users u ON u.id = f.added_by LEFT JOIN files nd ON nd.id = f.near_dup_of"
+)
 
 
 def _editable_case(rt: runtime.Runtime, user: dict, case_id: str) -> sqlite3.Row:
@@ -207,6 +215,8 @@ def list_files(
         where.append("f.warnings != '[]'")
     elif status == "scanned":
         where.append("f.scanned_pages != '[]'")
+    elif status == "near_duplicate":
+        where.append("f.near_dup_of IS NOT NULL")
     elif status:
         where.append("f.status = ?")
         args.append(status)
@@ -336,10 +346,11 @@ def progress(case_id: str, user: dict = Depends(accounts.current_user), rt: runt
         statuses = {r["status"]: r["n"] for r in db.execute("SELECT status, COUNT(*) AS n FROM files WHERE case_id = ? GROUP BY status", (case_id,))}
         warnings = db.execute("SELECT COUNT(*) FROM files WHERE case_id = ? AND warnings != '[]'", (case_id,)).fetchone()[0]
         scanned = db.execute("SELECT COUNT(*) FROM files WHERE case_id = ? AND scanned_pages != '[]'", (case_id,)).fetchone()[0]
+        near = db.execute("SELECT COUNT(*) FROM files WHERE case_id = ? AND near_dup_of IS NOT NULL", (case_id,)).fetchone()[0]
         job_counts = jobs.counts(db, [case_id])
         index = {r["index_state"] or "waiting": r["n"] for r in db.execute(
             "SELECT index_state, COUNT(*) AS n FROM files WHERE case_id = ? AND status IN ('converted', 'needs_ocr') GROUP BY index_state", (case_id,))}
-    return {"files": statuses, "total": sum(statuses.values()), "warnings": warnings, "scanned": scanned, "jobs": job_counts, "index": index}
+    return {"files": statuses, "total": sum(statuses.values()), "warnings": warnings, "scanned": scanned, "near_duplicates": near, "jobs": job_counts, "index": index}
 
 
 @router.get("/files/{file_id}/markdown")

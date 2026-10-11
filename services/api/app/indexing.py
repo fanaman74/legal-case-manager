@@ -9,7 +9,7 @@ catches up by itself once the model is available."""
 import logging
 import threading
 
-from . import audit, jobs
+from . import audit, jobs, neardup
 from .index import chunk
 from .index.embed import EmbedUnavailable
 from .runtime import Runtime
@@ -52,6 +52,7 @@ def run_index(rt: Runtime, job: dict) -> None:
 
     with rt.db.transaction() as db:
         db.execute("UPDATE files SET index_state = ?, passages = ?, indexed_at = ? WHERE id = ?", (state, len(passages), audit.now(), file_id))
+        neardup.check(db, case_id, file_id, markdown)
         jobs.finish(db, job["id"])
 
 
