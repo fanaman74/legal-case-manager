@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type ActionName, type Session, type Snapshot } from "../api";
 import { Activity } from "../sections/Activity";
 import { Checks } from "../sections/Checks";
+import { Jobs } from "../sections/Jobs";
 import { Components } from "../sections/Components";
 import { Logs } from "../sections/Logs";
 import { Network } from "../sections/Network";
@@ -67,10 +68,15 @@ export function ControlCenter({
   const compsReady = snap?.components.filter((c) => c.state === "installed").length ?? 0;
   const compsAlert = snap?.components.some((c) => c.state === "failed" || c.state === "missing" || c.state === "outdated");
 
+  const jobKinds = snap?.jobs ? Object.values(snap.jobs.jobs) : [];
+  const jobsFailed = jobKinds.reduce((n, k) => n + k.failed, 0);
+  const jobsWaiting = jobKinds.reduce((n, k) => n + k.queued + k.running, 0);
+
   const nav = [
     { id: "setup", label: "Setup", meta: snap ? `${stepsDone} of ${snap.wizard.length}` : "" },
     { id: "components", label: "Components", meta: snap ? `${compsReady} of ${snap.components.length}` : "", alert: compsAlert },
     { id: "services", label: "Services", meta: snap ? `${running} of ${total}` : "", alert: snap?.services.some((s) => s.state === "error") },
+    { id: "jobs", label: "Background jobs", meta: jobsFailed ? String(jobsFailed) : jobsWaiting ? jobsWaiting.toLocaleString() : "", alert: jobsFailed > 0 },
     { id: "checks", label: "System checks", meta: problems ? String(problems) : "", alert: problems > 0 },
     ...(isAdmin
       ? [
@@ -158,6 +164,7 @@ export function ControlCenter({
             <Wizard snap={snap} session={session} onSession={onSession} run={run} collapsed={setupDone && isAdmin} />
             <Components snap={snap} run={run} />
             <Services snap={snap} run={run} isAdmin={isAdmin} />
+            <Jobs snap={snap} />
             <Checks snap={snap} run={run} isAdmin={isAdmin} />
             {isAdmin && (
               <>

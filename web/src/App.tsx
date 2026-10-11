@@ -5,6 +5,8 @@ import { href, useRoute } from "./router";
 import { CaseList } from "./screens/CaseList";
 import { CasePage } from "./screens/CasePage";
 import { AuditLog } from "./screens/AuditLog";
+import { DocumentViewer } from "./screens/DocumentViewer";
+import { Jobs } from "./screens/Jobs";
 import { People } from "./screens/People";
 import { ChoosePassword, NeedsSetup, SignIn } from "./screens/SignIn";
 import { Shell } from "./components/Shell";
@@ -104,6 +106,12 @@ function SignedIn({ session, onSignedOut, onSession }: { session: Session; onSig
       break;
     case "case":
       page = <CasePage key={route.id} id={route.id} tab={route.tab} folder={route.folder} />;
+      break;
+    case "document":
+      page = <DocumentViewer key={route.fileId} caseId={route.id} fileId={route.fileId} page={route.page_no} />;
+      break;
+    case "jobs":
+      page = isAdmin ? <Jobs /> : <NoAccess />;
       break;
     case "people":
       page = isAdmin ? <People /> : <NoAccess />;

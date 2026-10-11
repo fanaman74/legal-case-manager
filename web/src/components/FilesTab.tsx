@@ -1,11 +1,12 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type CaseFile, type FileType } from "../api";
+import { api, type CaseFile, type FileType, type Progress } from "../api";
 import { formatBytes, formatDate, formatDateTime, plural, typeLabel } from "../format";
 import { useLoad } from "../hooks";
 import { href, onLinkClick } from "../router";
 import { fromDrop, fromInput } from "../upload";
-import { Badge, Button, CopyButton, Drawer, ErrorPanel, FormError, Icon, Skeleton } from "../ui";
+import { Button, CopyButton, Drawer, ErrorPanel, FormError, Icon, Link, Skeleton } from "../ui";
+import { FileStatusBadge } from "./FileStatus";
 import { DropZone, UploadPanel, useUploader } from "./Uploader";
 
 const PAGE = 500;
@@ -15,6 +16,7 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [type, setType] = useState<FileType | "">("");
+  const [status, setStatus] = useState("");
   const [sort, setSort] = useState<Sort>({ key: "added", asc: false });
   const [files, setFiles] = useState<CaseFile[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -30,12 +32,14 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
     return () => clearTimeout(t);
   }, [query]);
 
-  const params = useMemo(() => ({ q: debounced, folder, type, sort: sort.key, order: sort.asc ? "asc" : "desc" }), [debounced, folder, type, sort]);
+  const params = useMemo(() => ({ q: debounced, folder, type, status, sort: sort.key, order: sort.asc ? "asc" : "desc" }), [debounced, folder, type, status, sort]);
+  const loaded = useRef(0);
+  loaded.current = files.length;
 
   const load = useCallback(
-    async (offset: number) => {
+    async (offset: number, limit = PAGE) => {
       try {
-        const r = await api.files(caseId, { ...params, limit: PAGE, offset });
+        const r = await api.files(caseId, { ...params, limit, offset });
         setFiles((prev) => (offset === 0 ? r.items : [...prev, ...r.items]));
         setTotal(r.total);
         setError(null);
@@ -61,6 +65,14 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
     }, 500);
   }, [load, folders, onChanged]);
   const uploader = useUploader(caseId, onStored);
+  const openRef = useRef<CaseFile | null>(null);
+  openRef.current = openFile;
+  const progress = useProgress(caseId, () => {
+    // Statuses changed: refresh the rows on screen and the open file.
+    void load(0, Math.max(PAGE, Math.min(loaded.current, 1000)));
+    const f = openRef.current;
+    if (f) void api.file(caseId, f.id).then((fresh) => setOpenFile((cur) => (cur?.id === fresh.id ? fresh : cur)), () => undefined);
+  });
 
   const addFiles = (picked: ReturnType<typeof fromInput>) => {
     if (picked.length === 0) return;
@@ -69,10 +81,10 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
   };
 
   const caseEmpty = folders.data !== null && folders.data.items.length === 0;
-  const filtered = debounced || type || folder;
+  const filtered = debounced || type || folder || status;
 
   return (
-    <div className={`files${caseEmpty ? " files--with-next" : ""}`}>
+    <div className="files files--with-next">
       <aside className="files__tree" aria-label="Folders">
         <FolderTree caseId={caseId} folders={folders.data?.items ?? []} current={folder} />
       </aside>
@@ -108,6 +120,17 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
                 {Object.entries(typeLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </label>
+            <label className="field--inline">
+              <span className="sr-only">Status</span>
+              <select className="input input--select" value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="">All statuses</option>
+                <option value="converted">Converted</option>
+                <option value="warnings">With warnings</option>
+                <option value="scanned">Scanned, needs OCR</option>
+                <option value="failed">Failed</option>
+                <option value="queued">Waiting</option>
+              </select>
+            </label>
             <span className="toolbar__count" aria-live="polite">{total !== null && (filtered ? `${plural(total, "file")} match` : plural(total, "file"))}</span>
             {canUpload && (
               <div className="toolbar__end btn-row">
@@ -118,9 +141,7 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
           </div>
         )}
 
-        {!caseEmpty && folders.data && (
-          <p className="next-line"><Icon name="ok" /> Files uploaded. <span className="muted">Next: conversion to Markdown and search arrive in the next version.</span></p>
-        )}
+        {!caseEmpty && progress.data && <ProgressLine progress={progress.data} />}
         {error && <ErrorPanel message={error} onRetry={() => void load(0)} />}
         {total === null && !error && <Skeleton rows={8} />}
         {caseEmpty && total === 0 && (canUpload ? (
@@ -142,7 +163,15 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
         )}
       </div>
 
-      {caseEmpty && <NextSteps canUpload={canUpload} onUpload={() => fileInput.current?.click()} />}
+      <NextSteps
+        caseId={caseId}
+        progress={progress.data}
+        canUpload={canUpload}
+        canEdit={canEdit}
+        onUpload={() => fileInput.current?.click()}
+        onFilter={(s) => setStatus(s)}
+        onQueued={() => void progress.reload()}
+      />
 
       {openFile && (
         <FileDrawer
@@ -153,7 +182,9 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
           onChanged={(f) => {
             setOpenFile(f);
             setFiles((prev) => prev.map((p) => (p.id === f.id ? f : p)));
+            void progress.reload();
           }}
+          onOpenOther={(id) => void api.file(caseId, id).then(setOpenFile, (e: Error) => setError(e.message))}
         />
       )}
     </div>
@@ -231,7 +262,6 @@ function FolderTree({ caseId, folders, current }: { caseId: string; folders: { p
 
 // ---------------------------------------------------------------------------
 
-const statusBadge = (f: CaseFile) => (f.status === "stored" ? <Badge tone="ok" icon="ok">Stored</Badge> : <Badge tone="idle" icon="pending">{f.status}</Badge>);
 
 function FileTable({ files, total, sort, setSort, onOpen, onMore, dropTarget }: { files: CaseFile[]; total: number; sort: Sort; setSort: (s: Sort) => void; onOpen: (f: CaseFile) => void; onMore: () => void; dropTarget?: (dt: DataTransfer) => void }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -271,12 +301,12 @@ function FileTable({ files, total, sort, setSort, onOpen, onMore, dropTarget }: 
         <thead>
           <tr>
             {header("Name", "name")}
+            <th scope="col">Status</th>
             {header("Folder", "folder")}
             {header("Type", "type")}
             {header("Size", "size", "num")}
             {header("Added", "added")}
             <th scope="col">Added by</th>
-            <th scope="col">Status</th>
           </tr>
         </thead>
         <tbody>
@@ -287,19 +317,19 @@ function FileTable({ files, total, sort, setSort, onOpen, onMore, dropTarget }: 
               <tr key={f.id}>
                 <th scope="row" className="cell-name">
                   <div className="cell-name__inner">
-                  <button className="linkish" onClick={() => onOpen(f)} title={f.name}>
-                    <Icon name="file" />
+                  <button className="linkish" onClick={() => onOpen(f)} title={f.parent_id ? `${f.name} (email attachment)` : f.name}>
+                    <Icon name={f.parent_id ? "clip" : f.type === "email" ? "mail" : "file"} />
                     <span className="truncate">{f.name}</span>
                   </button>
                   {f.tags.length > 0 && <span className="cell-tags">{f.tags.map((t) => <span key={t} className="chip chip--sm">{t}</span>)}</span>}
                   </div>
                 </th>
+                <td className="nowrap"><FileStatusBadge file={f} /></td>
                 <td className="cell-folder"><span className="truncate" title={f.folder}>{f.folder || <span className="muted">Top level</span>}</span></td>
                 <td>{typeLabel[f.type]}</td>
                 <td className="num">{formatBytes(f.size)}</td>
                 <td className="nowrap">{formatDate(f.added_at)}</td>
                 <td className="nowrap">{f.added_by}</td>
-                <td>{statusBadge(f)}</td>
               </tr>
             );
           })}
@@ -313,15 +343,15 @@ function FileTable({ files, total, sort, setSort, onOpen, onMore, dropTarget }: 
 
 // ---------------------------------------------------------------------------
 
-function FileDrawer({ caseId, file, canEdit, onClose, onChanged }: { caseId: string; file: CaseFile; canEdit: boolean; onClose: () => void; onChanged: (f: CaseFile) => void }) {
+function FileDrawer({ caseId, file, canEdit, onClose, onChanged, onOpenOther }: { caseId: string; file: CaseFile; canEdit: boolean; onClose: () => void; onChanged: (f: CaseFile) => void; onOpenOther: (id: string) => void }) {
   const [tag, setTag] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const save = async (tags: string[]) => {
+  const act = async (fn: () => Promise<CaseFile>) => {
     setBusy(true);
     setError(null);
     try {
-      onChanged(await api.editFile(caseId, file.id, tags));
+      onChanged(await fn());
       setTag("");
     } catch (e) {
       setError((e as Error).message);
@@ -329,12 +359,85 @@ function FileDrawer({ caseId, file, canEdit, onClose, onChanged }: { caseId: str
       setBusy(false);
     }
   };
+  const save = (tags: string[]) => act(() => api.editFile(caseId, file.id, tags));
   const path = [file.folder, file.name].filter(Boolean).join("/");
+  const converted = file.status === "converted" || file.status === "needs_ocr";
+  const canOcr = canEdit && file.type === "pdf" && file.scanned_pages.length > 0;
   return (
     <Drawer open onOpenChange={(o) => !o && onClose()} title={file.name}>
+      <div className="drawer__section">
+        <div className="btn-row">
+          {converted && (
+            <Link className="btn btn--primary btn--md" to={href({ page: "document", id: caseId, fileId: file.id, page_no: 1 })}>
+              <Icon name="open" /><span>Open document</span>
+            </Link>
+          )}
+          <a className={`btn btn--${converted ? "secondary" : "primary"} btn--md`} href={api.downloadUrl(caseId, file.id)} download>
+            <Icon name="download" /><span>Download original</span>
+          </a>
+        </div>
+      </div>
+      <FormError message={error} />
       <dl className="kv">
         <dt>Status</dt>
-        <dd>{statusBadge(file)} <span className="muted">Conversion to Markdown arrives in the next version.</span></dd>
+        <dd className="kv__stack">
+          <FileStatusBadge file={file} />
+          {file.status === "failed" && <span>{file.error}</span>}
+          {file.status === "queued" && <span className="muted">Waiting to be converted to Markdown.</span>}
+          {file.status === "converting" && <span className="muted">Being converted to Markdown now.</span>}
+        </dd>
+        {file.warnings.length > 0 && (
+          <>
+            <dt>Warnings</dt>
+            <dd>
+              <ul className="warn-list">{file.warnings.map((w) => <li key={w}><Icon name="warn" /> {w}</li>)}</ul>
+            </dd>
+          </>
+        )}
+        {(file.status === "failed" || canOcr) && canEdit && (
+          <>
+            <dt><span className="sr-only">Actions</span></dt>
+            <dd className="btn-row">
+              {canOcr && <Button size="sm" icon="ocr" busy={busy} onClick={() => void act(() => api.reconvert(caseId, file.id, true))}>Run OCR</Button>}
+              {file.status === "failed" && <Button size="sm" icon="refresh" busy={busy} onClick={() => void act(() => api.reconvert(caseId, file.id))}>Retry</Button>}
+            </dd>
+          </>
+        )}
+        {file.page_count !== null && (
+          <>
+            <dt>Pages</dt>
+            <dd>{file.page_count.toLocaleString()}{file.ocr ? " · read with OCR" : ""}</dd>
+          </>
+        )}
+        {file.email && (
+          <>
+            <dt>From</dt>
+            <dd className="break">{file.email.from || <span className="muted">Not recorded</span>}</dd>
+            <dt>Sent</dt>
+            <dd>{formatDateTime(file.email.date) || <span className="muted">Not recorded</span>}</dd>
+          </>
+        )}
+        {file.attachments.length > 0 && (
+          <>
+            <dt>Attachments</dt>
+            <dd>
+              <ul className="plain-list">
+                {file.attachments.map((a) => (
+                  <li key={a.doc_id}>
+                    <button className="linkish" onClick={() => onOpenOther(a.doc_id)}><Icon name="clip" /> {a.name}</button>
+                    {a.duplicate && <span className="muted"> (already in the case)</span>}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        )}
+        {file.parent_id && (
+          <>
+            <dt>Attached to</dt>
+            <dd><button className="linkish" onClick={() => onOpenOther(file.parent_id!)}><Icon name="mail" /> The email it came with</button></dd>
+          </>
+        )}
         <dt>Original path</dt>
         <dd className="mono break">{path}</dd>
         <dt>Type</dt>
@@ -343,6 +446,12 @@ function FileDrawer({ caseId, file, canEdit, onClose, onChanged }: { caseId: str
         <dd>{formatBytes(file.size)} <span className="muted">({file.size.toLocaleString()} bytes)</span></dd>
         <dt>Added</dt>
         <dd>{formatDateTime(file.added_at)}{file.added_by ? ` by ${file.added_by}` : ""}</dd>
+        {file.converted_at && (
+          <>
+            <dt>Converted</dt>
+            <dd>{formatDateTime(file.converted_at)}</dd>
+          </>
+        )}
         <dt>SHA-256</dt>
         <dd className="hash">
           <span className="mono break">{file.sha256}</span>
@@ -351,7 +460,6 @@ function FileDrawer({ caseId, file, canEdit, onClose, onChanged }: { caseId: str
       </dl>
       <div className="drawer__section">
         <h3 className="h3">Tags</h3>
-        <FormError message={error} />
         <div className="chips">
           {file.tags.length === 0 && <span className="muted">No tags.</span>}
           {file.tags.map((t) => (
@@ -373,32 +481,159 @@ function FileDrawer({ caseId, file, canEdit, onClose, onChanged }: { caseId: str
           </form>
         )}
       </div>
-      <div className="drawer__section">
-        <a className="btn btn--primary btn--md" href={api.downloadUrl(caseId, file.id)} download>
-          <Icon name="download" /><span>Download original</span>
-        </a>
-        <p className="hint">The file you download is byte for byte what was uploaded. Downloads are recorded in the case's activity.</p>
-      </div>
+      <p className="hint">The original is kept byte for byte as uploaded. Opening and downloading are recorded in the case's activity.</p>
     </Drawer>
   );
 }
 
-function NextSteps({ canUpload, onUpload }: { canUpload: boolean; onUpload: () => void }) {
+// ---------------------------------------------------------------------------
+// Progress of conversion, polled while work is going on.
+
+function pending(p: Progress | null): number {
+  if (!p) return 0;
+  return (p.files.queued ?? 0) + (p.files.converting ?? 0);
+}
+
+function useProgress(caseId: string, onChange: () => void) {
+  const [data, setData] = useState<Progress | null>(null);
+  const last = useRef("");
+  const changed = useRef(onChange);
+  changed.current = onChange;
+  const reload = useCallback(async () => {
+    try {
+      const p = await api.progress(caseId);
+      const key = JSON.stringify([p.files, p.warnings, p.scanned]);
+      if (last.current && key !== last.current) changed.current();
+      last.current = key;
+      setData(p);
+    } catch {
+      // the file list shows its own error
+    }
+  }, [caseId]);
+  const busy = pending(data) > 0;
+  useEffect(() => {
+    void reload();
+    const t = setInterval(() => void reload(), busy ? 2500 : 15000);
+    return () => clearInterval(t);
+  }, [reload, busy]);
+  return { data, reload };
+}
+
+function ProgressLine({ progress }: { progress: Progress }) {
+  const total = progress.total;
+  const waiting = pending(progress);
+  if (total === 0) return null;
+  if (waiting > 0) {
+    const done = total - waiting;
+    return (
+      <div className="progress-line" role="status">
+        <Icon name="progress" />
+        <span className="progress-line__text">Converting <span className="tabular">{done.toLocaleString()} of {total.toLocaleString()}</span> files</span>
+        <span className="progress-line__bar" aria-hidden="true"><span style={{ width: `${Math.round((done / total) * 100)}%` }} /></span>
+      </div>
+    );
+  }
+  const problems = (progress.files.failed ?? 0) + (progress.files.needs_ocr ?? 0);
+  if (problems > 0) {
+    return (
+      <p className="next-line next-line--warn" role="status">
+        <Icon name="warn" /> {(total - problems).toLocaleString()} of {plural(total, "file")} converted to Markdown. {plural(problems, "file")} {problems === 1 ? "needs" : "need"} attention.
+      </p>
+    );
+  }
+  return (
+    <p className="next-line" role="status">
+      <Icon name="ok" /> All {plural(total, "file")} converted to Markdown.
+    </p>
+  );
+}
+
+function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, onQueued }: {
+  caseId: string;
+  progress: Progress | null;
+  canUpload: boolean;
+  canEdit: boolean;
+  onUpload: () => void;
+  onFilter: (status: string) => void;
+  onQueued: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const total = progress?.total ?? 0;
+  const waiting = pending(progress);
+  const failed = progress?.files.failed ?? 0;
+  const scanned = progress?.scanned ?? 0;
+  const warnings = progress?.warnings ?? 0;
+  const review = failed + scanned + warnings;
+  const run = async (what: "ocr_scanned" | "retry_failed") => {
+    setBusy(what);
+    setError(null);
+    try {
+      await api.bulkConvert(caseId, what);
+      onQueued();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const step = (state: "done" | "current" | "later") => `next__item next__item--${state}`;
+  const icon = (state: "done" | "current" | "later") => (state === "done" ? "ok" : state === "current" ? "pending" : "lock");
+  const s1 = total > 0 ? "done" : "current";
+  const s2 = total === 0 ? "later" : waiting > 0 ? "current" : "done";
+  const s3 = total === 0 || waiting > 0 ? "later" : review > 0 ? "current" : "done";
+  const allDone = total > 0 && waiting === 0 && review === 0;
+
+  if (!progress) return <aside className="next" aria-hidden="true" />;
   return (
     <aside className="next" aria-labelledby="next-title">
       <h2 id="next-title" className="next__title">What to do next</h2>
+      <FormError message={error} />
       <ol className="next__list">
-        <li className="next__item next__item--current">
-          <Icon name="pending" />
+        <li className={step(s1)}>
+          <Icon name={icon(s1)} />
           <div>
             <p className="next__label">Upload files or a folder</p>
-            {canUpload ? <button className="linkish" onClick={onUpload}>Choose files</button> : <p className="hint">An Editor or the Admin adds files.</p>}
+            {s1 === "done" ? <p className="hint">{plural(total, "file")} in this case.</p> : canUpload ? <button className="linkish" onClick={onUpload}>Choose files</button> : <p className="hint">An Editor or the Admin adds files.</p>}
           </div>
         </li>
-        <li className="next__item next__item--later">
-          <Icon name="lock" />
+        <li className={step(s2)}>
+          <Icon name={icon(s2)} />
           <div>
-            <p className="next__label">Convert to Markdown, then search</p>
+            <p className="next__label">Convert to Markdown</p>
+            <p className="hint">{s2 === "current" ? `${(total - waiting).toLocaleString()} of ${total.toLocaleString()} done. This runs by itself.` : s2 === "done" ? "Done." : "Starts by itself after upload."}</p>
+          </div>
+        </li>
+        <li className={step(s3)}>
+          <Icon name={s3 === "current" ? "warn" : icon(s3)} />
+          <div>
+            <p className="next__label">Review problems</p>
+            {s3 !== "current" && <p className="hint">{s3 === "done" ? "Nothing to review." : "Any failures or warnings show here."}</p>}
+            {s3 === "current" && (
+              <ul className="next__actions">
+                {failed > 0 && (
+                  <li>
+                    <button className="linkish" onClick={() => onFilter("failed")}>{plural(failed, "file")} failed</button>
+                    {canEdit && <Button size="sm" variant="quiet" busy={busy === "retry_failed"} onClick={() => void run("retry_failed")}>Retry all</Button>}
+                  </li>
+                )}
+                {scanned > 0 && (
+                  <li>
+                    <button className="linkish" onClick={() => onFilter("scanned")}>{plural(scanned, "scanned PDF")} need OCR</button>
+                    {canEdit && <Button size="sm" variant="quiet" busy={busy === "ocr_scanned"} onClick={() => void run("ocr_scanned")}>Run OCR on all</Button>}
+                  </li>
+                )}
+                {warnings > 0 && (
+                  <li><button className="linkish" onClick={() => onFilter("warnings")}>{plural(warnings, "file")} with warnings</button></li>
+                )}
+              </ul>
+            )}
+          </div>
+        </li>
+        <li className={step(allDone ? "current" : "later")}>
+          <Icon name={allDone ? "search" : "lock"} />
+          <div>
+            <p className="next__label">Search and ask</p>
             <p className="hint">Arrives in the next version.</p>
           </div>
         </li>

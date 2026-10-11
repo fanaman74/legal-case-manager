@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 export type Route =
   | { page: "cases" }
   | { page: "case"; id: string; tab: CaseTab; folder: string }
+  | { page: "document"; id: string; fileId: string; page_no: number }
+  | { page: "jobs" }
   | { page: "people" }
   | { page: "audit" }
   | { page: "password" }
@@ -16,6 +18,10 @@ const TABS: CaseTab[] = ["files", "details", "people", "activity"];
 export function parse(pathname: string, search: string): Route {
   const parts = pathname.split("/").filter(Boolean);
   if (parts.length === 0 || (parts.length === 1 && parts[0] === "cases")) return { page: "cases" };
+  if (parts[0] === "cases" && parts.length === 4 && parts[2] === "files" && /^[0-9a-f]{32}$/.test(parts[1]) && /^[0-9a-f]{32}$/.test(parts[3])) {
+    const n = Number(new URLSearchParams(search).get("page") ?? "1");
+    return { page: "document", id: parts[1], fileId: parts[3], page_no: Number.isInteger(n) && n > 0 ? n : 1 };
+  }
   if (parts[0] === "cases" && parts.length <= 3 && /^[0-9a-f]{32}$/.test(parts[1])) {
     const tab = (parts[2] ?? "files") as CaseTab;
     if (!TABS.includes(tab)) return { page: "not-found" };
@@ -23,6 +29,7 @@ export function parse(pathname: string, search: string): Route {
   }
   if (parts.length === 1 && parts[0] === "people") return { page: "people" };
   if (parts.length === 1 && parts[0] === "audit") return { page: "audit" };
+  if (parts.length === 1 && parts[0] === "jobs") return { page: "jobs" };
   if (parts.length === 1 && parts[0] === "password") return { page: "password" };
   return { page: "not-found" };
 }
@@ -35,6 +42,10 @@ export function href(route: Route): string {
       const base = `/cases/${route.id}${route.tab === "files" ? "" : `/${route.tab}`}`;
       return route.tab === "files" && route.folder ? `${base}?folder=${encodeURIComponent(route.folder)}` : base;
     }
+    case "document":
+      return `/cases/${route.id}/files/${route.fileId}${route.page_no > 1 ? `?page=${route.page_no}` : ""}`;
+    case "jobs":
+      return "/jobs";
     case "people":
       return "/people";
     case "audit":

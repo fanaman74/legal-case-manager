@@ -1,12 +1,14 @@
 """Case storage on disk. Each case has its own folder:
 
     cases/<case-id>/original/<file-id><ext>   uploaded files, byte for byte
+    cases/<case-id>/markdown/<file-id>.md     the converted Markdown
+    cases/<case-id>/preview/<file-id>/        page images for the viewer
 
 Files are stored under their ID, not their uploaded name, so long paths,
 reserved Windows names and odd characters in uploads can't cause trouble; the
 uploaded name and folder are kept in the database. Originals are made
-read-only once stored. Later phases add markdown/ and vectors/ beside
-original/."""
+read-only once stored and are never changed; everything else is made from
+them and can be made again."""
 
 import os
 import re
@@ -39,6 +41,46 @@ class Storage:
         if not _EXT.match(ext):
             raise ValueError("bad extension")
         return self.originals(case_id) / f"{_check_id(file_id)}{ext}"
+
+    def markdown(self, case_id: str, file_id: str) -> Path:
+        return self.case_dir(case_id) / "markdown" / f"{_check_id(file_id)}.md"
+
+    def previews(self, case_id: str, file_id: str) -> Path:
+        return self.case_dir(case_id) / "preview" / _check_id(file_id)
+
+    def preview(self, case_id: str, file_id: str, page: int) -> Path:
+        return self.previews(case_id, file_id) / f"p{int(page):04d}.jpg"
+
+    def work_dir(self, case_id: str) -> Path:
+        """A scratch folder for one conversion, on the case's disk."""
+        folder = self.case_dir(case_id) / f".work-{secrets.token_hex(8)}"
+        folder.mkdir(parents=True)
+        return folder
+
+    def write_markdown(self, case_id: str, file_id: str, text: str) -> Path:
+        dest = self.markdown(case_id, file_id)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(f".tmp-{secrets.token_hex(4)}")
+        tmp.write_text(text, encoding="utf-8", newline="\n")
+        os.replace(tmp, dest)
+        return dest
+
+    def replace_previews(self, case_id: str, file_id: str, src: Path | None) -> None:
+        """Swap in a new set of page images (or remove them)."""
+        dest = self.previews(case_id, file_id)
+        if dest.exists():
+            old = dest.with_name(f".old-{dest.name}-{secrets.token_hex(4)}")
+            os.replace(dest, old)
+            shutil.rmtree(old, ignore_errors=True)
+        if src is not None and src.is_dir():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src, dest)
+
+    def keep_bytes(self, case_id: str, file_id: str, ext: str, data: bytes) -> Path:
+        """Store a new original from bytes (an email attachment)."""
+        tmp = self.incoming(case_id)
+        tmp.write_bytes(data)
+        return self.keep(tmp, case_id, file_id, ext)
 
     def create_case(self, case_id: str) -> None:
         self.originals(case_id).mkdir(parents=True, exist_ok=True)

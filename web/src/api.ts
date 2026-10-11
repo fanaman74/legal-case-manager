@@ -38,6 +38,8 @@ export type Case = {
 
 export type FileType = "word" | "pdf" | "email" | "text" | "image";
 
+export type FileStatus = "queued" | "converting" | "converted" | "needs_ocr" | "failed";
+
 export type CaseFile = {
   id: string;
   name: string;
@@ -46,10 +48,50 @@ export type CaseFile = {
   ext: string;
   size: number;
   sha256: string;
-  status: string;
+  status: FileStatus;
   tags: string[];
   added_at: string;
   added_by: string | null;
+  parent_id: string | null;
+  page_count: number | null;
+  ocr: boolean;
+  warnings: string[];
+  error: string;
+  scanned_pages: number[];
+  doc_date: string | null;
+  title: string | null;
+  converted_at: string | null;
+  previews: number;
+  email: { from: string; to: string[]; cc: string[]; date: string | null; subject: string } | null;
+  attachments: { name: string; doc_id: string; duplicate?: boolean }[];
+};
+
+export type JobCounts = { queued: number; running: number; failed: number; done: number; total: number };
+
+export type Progress = {
+  files: Partial<Record<FileStatus, number>>;
+  total: number;
+  warnings: number;
+  scanned: number;
+  jobs: Record<string, JobCounts>;
+};
+
+export type Job = {
+  id: number;
+  kind: string;
+  label: string;
+  state: "queued" | "running" | "done" | "failed";
+  case_id: string | null;
+  case_name: string | null;
+  file_id: string | null;
+  file: string | null;
+  error: string;
+  attempts: number;
+  done: number;
+  total: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
 };
 
 export type Member = { id: number; display_name: string; username: string; role: Role; active: boolean };
@@ -161,12 +203,20 @@ export const api = {
   setMembers: (id: string, user_ids: number[]) => request<{ items: Member[] }>("PUT", `/api/cases/${id}/members`, { user_ids }),
   activity: (id: string, before?: number) => request<{ items: AuditEntry[] }>("GET", `/api/cases/${id}/activity${q({ before, limit: 100 })}`),
 
-  files: (id: string, params: { q?: string; folder?: string; type?: string; sort?: string; order?: string; limit?: number; offset?: number }) =>
+  files: (id: string, params: { q?: string; folder?: string; type?: string; status?: string; sort?: string; order?: string; limit?: number; offset?: number }) =>
     request<{ items: CaseFile[]; total: number }>("GET", `/api/cases/${id}/files${q(params)}`),
   file: (id: string, fileId: string) => request<CaseFile>("GET", `/api/cases/${id}/files/${fileId}`),
   folders: (id: string) => request<{ items: { path: string; files: number }[] }>("GET", `/api/cases/${id}/folders`),
   editFile: (id: string, fileId: string, tags: string[]) => request<CaseFile>("PATCH", `/api/cases/${id}/files/${fileId}`, { tags }),
   downloadUrl: (id: string, fileId: string) => `/api/cases/${id}/files/${fileId}/original`,
+  pageUrl: (id: string, fileId: string, page: number) => `/api/cases/${id}/files/${fileId}/pages/${page}`,
+  markdown: (id: string, fileId: string) => request<{ front_matter: string; body: string; markdown_sha256: string }>("GET", `/api/cases/${id}/files/${fileId}/markdown`),
+  reconvert: (id: string, fileId: string, ocr = false) => request<CaseFile>("POST", `/api/cases/${id}/files/${fileId}/convert`, { ocr }),
+  bulkConvert: (id: string, what: "ocr_scanned" | "retry_failed") => request<{ queued: number }>("POST", `/api/cases/${id}/convert`, { what }),
+  progress: (id: string) => request<Progress>("GET", `/api/cases/${id}/progress`),
+  status: () => request<{ jobs: Record<string, JobCounts>; files: Partial<Record<FileStatus, number>> }>("GET", "/api/status"),
+  jobs: (state?: string) => request<{ items: Job[]; counts: Record<string, JobCounts> }>("GET", `/api/jobs${q({ state })}`),
+  retryJob: (jobId: number) => request<{ ok: boolean }>("POST", `/api/jobs/${jobId}/retry`),
   /** Uploads one file. Duplicates and unsupported types come back as results, not errors. */
   upload: async (id: string, path: string, file: File, signal?: AbortSignal): Promise<UploadResult> => {
     try {

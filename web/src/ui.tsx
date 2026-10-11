@@ -38,6 +38,12 @@ const paths = {
   engine: <><rect x="2" y="3" width="12" height="4" rx="1" /><rect x="2" y="9" width="12" height="4" rx="1" /><path d="M5 5h.01M5 11h.01" /></>,
   refresh: <><path d="M13.5 8a5.5 5.5 0 11-1.6-3.9" /><path d="M13.5 2v3.5H10" /></>,
   sort: <path d="M5 3v10M2.5 10.5L5 13l2.5-2.5M11 13V3M8.5 5.5L11 3l2.5 2.5" />,
+  clip: <path d="M13 7.5l-5.2 5.2a3.2 3.2 0 01-4.5-4.5L8.8 2.7a2.1 2.1 0 013 3L6.4 11.1a1 1 0 01-1.5-1.5L10 4.5" />,
+  mail: <><rect x="1.5" y="3" width="13" height="10" rx="1" /><path d="M2 3.8l6 4.7 6-4.7" /></>,
+  open: <><path d="M3.5 1.5h6l3 3v10h-9z" /><path d="M6 8h4.5M6 10.5h4.5M6 5.5h2" /></>,
+  ocr: <><path d="M1.5 5V2.5a1 1 0 011-1H5M11 1.5h2.5a1 1 0 011 1V5M14.5 11v2.5a1 1 0 01-1 1H11M5 14.5H2.5a1 1 0 01-1-1V11" /><path d="M5 6h6M5 8h6M5 10h4" /></>,
+  back: <path d="M10 3L5 8l5 5" />,
+  jobs: <><path d="M2 4h12M2 8h12M2 12h7" /><circle cx="12.5" cy="12" r="1.5" /></>,
 } as const;
 
 export type IconName = keyof typeof paths;

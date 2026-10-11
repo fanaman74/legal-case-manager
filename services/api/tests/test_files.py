@@ -20,7 +20,7 @@ def test_upload_stores_original_unchanged(admin, case, cfg):
     assert r.status_code == 201
     f = r.json()["file"]
     assert r.json()["result"] == "stored"
-    assert (f["name"], f["folder"], f["type"], f["size"], f["status"], f["added_by"]) == ("Letter before action.pdf", "Correspondence/2024", "pdf", len(data), "stored", "fred")
+    assert (f["name"], f["folder"], f["type"], f["size"], f["status"], f["added_by"]) == ("Letter before action.pdf", "Correspondence/2024", "pdf", len(data), "queued", "fred")
     assert f["sha256"] == hashlib.sha256(data).hexdigest()
     stored = cfg.cases_dir / case / "original" / f"{f['id']}.pdf"
     assert stored.read_bytes() == data

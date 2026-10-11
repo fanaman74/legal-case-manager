@@ -78,6 +78,22 @@ export interface WizardStep {
   detail: string;
 }
 
+export interface JobKind {
+  queued: number;
+  running: number;
+  failed: number;
+  done: number;
+  total: number;
+}
+
+export interface WorkerJobs {
+  updated: string;
+  fresh: boolean;
+  jobs: Record<string, JobKind>;
+  files: Record<string, number>;
+  index?: { cases: number; chunks: number; model: string; problem?: string; indexed: number; pending: number; failures: number };
+}
+
 export interface Snapshot {
   generatedAt: string;
   launcherVersion: string;
@@ -89,6 +105,7 @@ export interface Snapshot {
   operations: Operation[];
   wizard: WizardStep[];
   hasAdmin: boolean;
+  jobs?: WorkerJobs;
 }
 
 export type SessionState = "needs_setup" | "signed_out" | "setup" | "admin";
