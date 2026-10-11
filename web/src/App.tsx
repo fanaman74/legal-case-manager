@@ -8,6 +8,7 @@ import { AuditLog } from "./screens/AuditLog";
 import { DocumentViewer } from "./screens/DocumentViewer";
 import { Jobs } from "./screens/Jobs";
 import { People } from "./screens/People";
+import { Settings } from "./screens/Settings";
 import { ChoosePassword, NeedsSetup, SignIn } from "./screens/SignIn";
 import { Shell } from "./components/Shell";
 import { EmptyState, ErrorPanel, Link } from "./ui";
@@ -105,13 +106,16 @@ function SignedIn({ session, onSignedOut, onSession }: { session: Session; onSig
       page = <CaseList />;
       break;
     case "case":
-      page = <CasePage key={route.id} id={route.id} tab={route.tab} folder={route.folder} q={route.q ?? ""} />;
+      page = <CasePage key={route.id} id={route.id} tab={route.tab} folder={route.folder} q={route.q ?? ""} file={route.file} />;
       break;
     case "document":
       page = <DocumentViewer key={route.fileId} caseId={route.id} fileId={route.fileId} page={route.page_no} q={route.q ?? ""} />;
       break;
     case "jobs":
       page = isAdmin ? <Jobs /> : <NoAccess />;
+      break;
+    case "settings":
+      page = isAdmin ? <Settings /> : <NoAccess />;
       break;
     case "people":
       page = isAdmin ? <People /> : <NoAccess />;

@@ -12,3 +12,5 @@ compressed-rtf==1.0.7
 # Search
 lancedb==0.40.0
 httpx==0.28.1
+# AI services (Claude through its SDK; others over HTTPS)
+anthropic==1.13.0

@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable
 
 from . import indexing, jobs, mailboxes, pipeline, settings
+from .ai import calls, local
 from .runtime import Runtime
 
 INTERVAL = 5
@@ -64,6 +65,7 @@ HANDLERS: dict[str, Callable[[Runtime, dict], None]] = {
     "index": indexing.run_index,
     "pst": mailboxes.run_index,
     "pst_add": mailboxes.run_add,
+    "model": local.run_pull,
 }
 
 
@@ -72,7 +74,8 @@ def lanes(cfg: settings.Settings) -> list[tuple[str, ...]]:
     # Indexing has one thread: the local model works on one request at a
     # time anyway, and each case's index has one writer.
     # Mailboxes have their own thread, so a large PST never holds up uploads.
-    return [("convert",)] * cfg.convert_workers + [("index",), ("pst_add", "pst")]
+    # A local AI model download is one long job, so it has its own thread too.
+    return [("convert",)] * cfg.convert_workers + [("index",), ("pst_add", "pst"), ("model",)]
 
 
 def run_lane(rt: Runtime, kinds: tuple[str, ...], stop: threading.Event) -> None:
@@ -140,6 +143,7 @@ def main() -> int:
                     log.info("the local model is available: adding meaning search for %d files", queued)
             if time.time() - last_tidy > 3600:
                 jobs.tidy(rt.db)
+                calls.tidy(rt)
                 rt.storage.empty_trash()
                 indexing.optimise_all(rt)
                 last_tidy = time.time()

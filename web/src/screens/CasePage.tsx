@@ -2,14 +2,16 @@ import * as Tabs from "@radix-ui/react-tabs";
 import { useState } from "react";
 import { api, ApiError, type Case } from "../api";
 import { ActivityTab, DetailsTab, PeopleTab } from "../components/CaseTabs";
+import { AskTab } from "../components/AskTab";
 import { FilesTab } from "../components/FilesTab";
 import { EmailTab } from "../components/EmailTab";
+import { ReviewTab } from "../components/ReviewTab";
 import { SearchTab } from "../components/SearchTab";
 import { useApp, useLoad, useTitle } from "../hooks";
-import { href, navigate, type CaseTab } from "../router";
+import { href, navigate, TABS, type CaseTab } from "../router";
 import { ActionMenu, Badge, Button, EmptyState, ErrorPanel, Field, FormError, Link, Modal, Skeleton, type MenuItem } from "../ui";
 
-export function CasePage({ id, tab, folder, q }: { id: string; tab: CaseTab; folder: string; q: string }) {
+export function CasePage({ id, tab, folder, q, file }: { id: string; tab: CaseTab; folder: string; q: string; file?: string }) {
   const { reloadCases, toast } = useApp();
   const { data: c, error, loading, reload, setData } = useLoad(() => api.case(id), [id]);
   const [deleting, setDeleting] = useState(false);
@@ -91,9 +93,9 @@ export function CasePage({ id, tab, folder, q }: { id: string; tab: CaseTab; fol
 
       <Tabs.Root value={tab} onValueChange={(t) => navigate(tabHref(t as CaseTab))} activationMode="manual">
         <Tabs.List className="tabs" aria-label="Case sections">
-          {(["files", "search", "email", "details", "people", "activity"] as CaseTab[]).map((t) => (
+          {TABS.map((t) => (
             <Tabs.Trigger key={t} value={t} className="tabs__tab">
-              {{ files: "Files", search: "Search", email: "Email", details: "Details", people: "People", activity: "Activity" }[t]}
+              {{ files: "Files", search: "Search", ask: "Ask", review: "Review", email: "Email", details: "Details", people: "People", activity: "Activity" }[t]}
             </Tabs.Trigger>
           ))}
         </Tabs.List>
@@ -102,6 +104,12 @@ export function CasePage({ id, tab, folder, q }: { id: string; tab: CaseTab; fol
         </Tabs.Content>
         <Tabs.Content value="search" className="tabs__panel">
           {tab === "search" && <SearchTab caseId={id} q={q} />}
+        </Tabs.Content>
+        <Tabs.Content value="ask" className="tabs__panel">
+          {tab === "ask" && <AskTab caseId={id} />}
+        </Tabs.Content>
+        <Tabs.Content value="review" className="tabs__panel">
+          {tab === "review" && <ReviewTab key={file ?? ""} caseId={id} canEdit={perms.edit} file={file} />}
         </Tabs.Content>
         <Tabs.Content value="email" className="tabs__panel">
           {tab === "email" && <EmailTab caseId={id} perms={perms} />}

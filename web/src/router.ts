@@ -4,16 +4,17 @@ import { useEffect, useState } from "react";
 
 export type Route =
   | { page: "cases" }
-  | { page: "case"; id: string; tab: CaseTab; folder: string; q?: string }
+  | { page: "case"; id: string; tab: CaseTab; folder: string; q?: string; file?: string }
   | { page: "document"; id: string; fileId: string; page_no: number; q?: string }
   | { page: "jobs" }
+  | { page: "settings" }
   | { page: "people" }
   | { page: "audit" }
   | { page: "password" }
   | { page: "not-found" };
 
-export type CaseTab = "files" | "search" | "email" | "details" | "people" | "activity";
-const TABS: CaseTab[] = ["files", "search", "email", "details", "people", "activity"];
+export type CaseTab = "files" | "search" | "ask" | "review" | "email" | "details" | "people" | "activity";
+export const TABS: CaseTab[] = ["files", "search", "ask", "review", "email", "details", "people", "activity"];
 
 export function parse(pathname: string, search: string): Route {
   const parts = pathname.split("/").filter(Boolean);
@@ -30,11 +31,14 @@ export function parse(pathname: string, search: string): Route {
     if (!TABS.includes(tab)) return { page: "not-found" };
     const params = new URLSearchParams(search);
     if (tab === "search") return { page: "case", id: parts[1], tab, folder: "", q: params.get("q") ?? "" };
+    const file = params.get("file");
+    if (tab === "review" && file && /^[0-9a-f]{32}$/.test(file)) return { page: "case", id: parts[1], tab, folder: "", file };
     return { page: "case", id: parts[1], tab, folder: params.get("folder") ?? "" };
   }
   if (parts.length === 1 && parts[0] === "people") return { page: "people" };
   if (parts.length === 1 && parts[0] === "audit") return { page: "audit" };
   if (parts.length === 1 && parts[0] === "jobs") return { page: "jobs" };
+  if (parts.length === 1 && parts[0] === "settings") return { page: "settings" };
   if (parts.length === 1 && parts[0] === "password") return { page: "password" };
   return { page: "not-found" };
 }
@@ -46,6 +50,7 @@ export function href(route: Route): string {
     case "case": {
       const base = `/cases/${route.id}${route.tab === "files" ? "" : `/${route.tab}`}`;
       if (route.tab === "search") return route.q ? `${base}?q=${encodeURIComponent(route.q)}` : base;
+      if (route.tab === "review" && route.file) return `${base}?file=${route.file}`;
       return route.tab === "files" && route.folder ? `${base}?folder=${encodeURIComponent(route.folder)}` : base;
     }
     case "document": {
@@ -57,6 +62,8 @@ export function href(route: Route): string {
     }
     case "jobs":
       return "/jobs";
+    case "settings":
+      return "/settings";
     case "people":
       return "/people";
     case "audit":
