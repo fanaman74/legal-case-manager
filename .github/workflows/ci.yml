@@ -137,13 +137,18 @@ jobs:
           $p = Start-Process -FilePath $setup.FullName -ArgumentList "/S" -PassThru -Wait
           if ($p.ExitCode -ne 0) { Write-Host "Installer exit code $($p.ExitCode)"; exit 1 }
           if (-not (Get-Service CaseFileManagerLauncher -ErrorAction SilentlyContinue)) { Write-Host "The launcher service wasn't registered"; exit 1 }
+          $entry = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Where-Object DisplayName -like "Case File Manager*" | Select-Object -First 1
+          $entry | Format-List DisplayName, DisplayVersion, InstallLocation, UninstallString | Out-String | Write-Host
+          Get-ChildItem "$($entry.InstallLocation)\resources" | Format-Table Name, Length | Out-String | Write-Host
       - name: Smoke test
         shell: pwsh
         run: .\scripts\ci\windows-smoke.ps1 -Desktop -Screenshot "$env:RUNNER_TEMP\desktop.png"
       - name: Uninstall keeps case data
         shell: pwsh
         run: |
-          Start-Process -FilePath "$env:ProgramFiles\Case File Manager\Uninstall Case File Manager.exe" -ArgumentList "/S" -Wait
+          $entry = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Where-Object DisplayName -like "Case File Manager*" | Select-Object -First 1
+          $uninstaller = ($entry.UninstallString -replace '^"([^"]+)".*$', '$1')
+          Start-Process -FilePath $uninstaller -ArgumentList "/S", "/allusers" -Wait
           # The uninstaller hands over to a copy of itself, so wait for the result.
           $deadline = (Get-Date).AddMinutes(3)
           while ((Get-Service CaseFileManagerLauncher -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }

@@ -208,12 +208,16 @@ Check ($rules.Count -eq 2) "two firewall rules installed"
 $out = $rules | Where-Object Direction -eq Outbound
 Check ($out.Action -eq "Block" -and ($out | Get-NetFirewallServiceFilter).Service -eq "CaseFiles-worker") "worker blocked from the internet"
 if ($Desktop) {
-  $appDir = "$env:ProgramFiles\Case File Manager"
+  # Where the installer put the app, from its Settings › Apps entry.
+  $entry = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Where-Object DisplayName -like "Case File Manager*" | Select-Object -First 1
+  $appDir = $entry.InstallLocation
+  Check ([bool]$appDir -and (Test-Path "$appDir\CaseFileManager.exe")) "the app is listed in Settings › Apps ($appDir)"
   Check (Test-Path "$env:PUBLIC\Desktop\Case File Manager.lnk") "desktop shortcut to the app"
   Check (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Case File Manager.lnk") "Start menu shortcut to the app"
   Check (-not (Test-Path "$env:PUBLIC\Desktop\Case File Manager Control Center.url")) "no browser shortcut"
   Check (-not (Test-Path "$root\uninstall.cmd")) "no uninstall.cmd (the app is removed from Settings)"
-  Check ((Get-FileHash "$appDir\resources\local-ca.crt").Hash -eq (Get-FileHash "$root\certs\ca.crt").Hash) "the app has this computer's CA certificate"
+  $caCopy = "$appDir\resources\local-ca.crt"
+  Check ((Test-Path $caCopy) -and (Get-FileHash $caCopy).Hash -eq (Get-FileHash "$root\certs\ca.crt").Hash) "the app has this computer's CA certificate"
   Check ((Get-Content -Raw "$root\launcher.json" | ConvertFrom-Json).desktop_app -eq $true) "launcher.json records the desktop install"
 } else {
   Check (Test-Path "$env:PUBLIC\Desktop\Case File Manager Control Center.url") "desktop shortcut to the Control Center"
