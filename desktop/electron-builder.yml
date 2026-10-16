@@ -1,0 +1,38 @@
+# Builds "CaseFileManager-Setup-<version>.exe": the desktop app plus the services'
+# install folder (scripts/build.sh windows), which the installer hands to
+# Setup.exe to register the Windows services. See build/installer.nsh.
+appId: com.casefilemanager.desktop
+productName: Case File Manager
+copyright: Case File Manager
+directories:
+  output: ../dist/desktop
+  buildResources: build
+files:
+  - dist/**/*.js
+  - "!dist/**/*.test.js"
+  - static/**/*
+  - package.json
+extraResources:
+  - from: ../dist/windows
+    to: casefiles
+    filter: ["**/*"]
+asar: true
+win:
+  target: nsis
+  icon: build/icon.png
+  executableName: CaseFileManager
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: true
+  perMachine: true
+  allowElevation: true
+  runAfterFinish: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Case File Manager
+  uninstallDisplayName: Case File Manager
+  artifactName: CaseFileManager-Setup-${version}.exe
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh
+publish: null
+electronLanguages: [en-US, en-GB]

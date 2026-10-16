@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'">
+<title>Case File Manager</title>
+<style>
+  :root {
+    --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --paper: #F6F5F1; --surface: #FFFFFF; --rule: #D9D5CC; --ink: #1D1C1A; --ink-muted: #5B574F;
+    --accent: #2A4580; --accent-hover: #1F3665; --on-accent: #FFFFFF; --warn: #8A5700; --warn-tint: #FAEFD9;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #131311; --surface: #1B1A18; --rule: #36342F; --ink: #ECE9E2; --ink-muted: #A7A195;
+      --accent: #94AEE6; --accent-hover: #B3C6EE; --on-accent: #0F1522; --warn: #E0B25C; --warn-tint: #2E2414;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--paper); color: var(--ink); font: 14px/1.45 var(--font-ui); padding: 16px; }
+  main { width: 100%; max-width: 520px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 32px; }
+  .mark { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); font-size: 13px; margin-bottom: 24px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); animation: pulse 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+  @keyframes pulse { 50% { opacity: .35; } }
+  h1 { font-size: 22px; line-height: 1.25; font-weight: 600; margin: 0 0 8px; }
+  p { margin: 0 0 16px; color: var(--ink-muted); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 24px; }
+  a.btn { display: inline-flex; align-items: center; height: 36px; padding: 0 16px; border-radius: 4px; text-decoration: none; font-weight: 500; border: 1px solid var(--rule); color: var(--ink); }
+  a.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  a.btn--primary:hover { background: var(--accent-hover); }
+  a.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .note { font-size: 12px; margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark"><span class="dot" aria-hidden="true"></span><span>Case File Manager</span></div>
+  <h1 id="title">The case manager isn't answering yet</h1>
+  <p id="body">The services on this computer are starting, or they're stopped. This page opens the case manager by itself as soon as it answers.</p>
+  <p id="next">The Control Center shows what's running and installs anything that's missing.</p>
+  <div class="actions">
+    <a class="btn btn--primary" id="cc" href="#">Open Control Center</a>
+    <a class="btn" id="retry" href="#">Try again</a>
+  </div>
+  <p class="note" id="code"></p>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  const ok = (u) => /^https:\/\/localhost(:\d{1,5})?\/$/.test(u || "") ? u : null;
+  const app = ok(q.get("app")), cc = ok(q.get("cc"));
+  const area = q.get("area") === "control-center" ? "control-center" : "app";
+  const reason = q.get("reason") || "";
+  if (cc) document.getElementById("cc").href = cc;
+  document.getElementById("retry").href = (area === "app" ? app : cc) || "#";
+  const set = (id, text) => { document.getElementById(id).textContent = text; };
+  if (area === "control-center") {
+    set("title", "The Control Center isn't answering");
+    set("body", "The launcher runs as a Windows service and starts with the computer.");
+    set("next", "Restart the computer. If it still doesn't answer, run the Case File Manager installer again to repair it. Your cases are kept.");
+    document.getElementById("cc").style.display = "none";
+  }
+  if (reason === "no-ca" || reason === "certificate") {
+    set("title", "This computer's certificate couldn't be checked");
+    set("body", "The app only trusts the certificate Case File Manager created when it was installed here, and it couldn't confirm it.");
+    set("next", "Run the Case File Manager installer again to repair it. Your cases are kept.");
+  }
+  if (reason) set("code", "Reference: " + reason);
+</script>
+</body>
+</html>

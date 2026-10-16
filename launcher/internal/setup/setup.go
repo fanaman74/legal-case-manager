@@ -33,7 +33,17 @@ type Options struct {
 	// opening it. The unelevated Setup.exe that asked for administrator
 	// rights opens it, so the browser doesn't run as administrator.
 	Handoff string
-	Out     io.Writer
+	// ErrorOut is a file to write the reason to when setup fails, for the
+	// desktop app's installer, which shows it in a message box.
+	ErrorOut string
+	// DesktopApp is set by the desktop app's installer. The app has its own
+	// Start menu and desktop shortcuts and is uninstalled from Settings, so
+	// setup leaves out the browser shortcut and uninstall.cmd.
+	DesktopApp bool
+	// CAOut is where to copy the local CA certificate (public) so the
+	// desktop app can trust the app's HTTPS certificate without a warning.
+	CAOut string
+	Out   io.Writer
 }
 
 // Defaults returns the options for a standard install.
@@ -65,6 +75,8 @@ func (l layout) dirs() []string {
 
 // mergeConfig writes the install's paths and ports into launcher.json and
 // keeps any other settings from an earlier install (such as hostname).
+// An install made by the desktop app stays one: running Setup.exe or
+// launcher.exe again to repair it keeps desktop_app set.
 func mergeConfig(existing []byte, l layout, o Options) ([]byte, error) {
 	cfg := map[string]any{}
 	existing = []byte(strings.TrimPrefix(string(existing), "\xef\xbb\xbf"))
@@ -79,6 +91,9 @@ func mergeConfig(existing []byte, l layout, o Options) ([]byte, error) {
 		"port": o.Port, "app_port": o.AppPort,
 	} {
 		cfg[k] = v
+	}
+	if o.DesktopApp {
+		cfg["desktop_app"] = true
 	}
 	return json.MarshalIndent(cfg, "", "  ")
 }
@@ -164,6 +179,16 @@ func firewallRules(l layout, appPort int) []string {
 
 func firewallDeletes() []string {
 	return []string{`delete rule name="` + ruleWebApp + `"`, `delete rule name="` + ruleWorker + `"`}
+}
+
+// desktopApp reports whether launcher.json says the desktop app installed
+// Case File Manager.
+func desktopApp(existing []byte) bool {
+	var cfg struct {
+		DesktopApp bool `json:"desktop_app"`
+	}
+	_ = json.Unmarshal([]byte(strings.TrimPrefix(string(existing), "\xef\xbb\xbf")), &cfg)
+	return cfg.DesktopApp
 }
 
 var codeRE = regexp.MustCompile(`(?m)^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}\s*$`)

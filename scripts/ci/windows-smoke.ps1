@@ -3,8 +3,11 @@
   Signs in with the setup code, waits for the launcher to install every
   component and start every service by itself, reinstalls one component
   through the Control Center API, and checks the security settings the
-  installer applies.
+  installer applies. With -Desktop, the install was made by the desktop
+  app's installer: it also checks the app's shortcuts, that the app trusts
+  the local certificate and loads the case manager, and takes a screenshot.
 #>
+param([switch]$Desktop, [string]$Screenshot = "")
 $ErrorActionPreference = "Stop"
 $root = "C:\CaseFiles"
 $base = "https://127.0.0.1:8443"
@@ -204,8 +207,22 @@ $rules = @(Get-NetFirewallRule -DisplayName "Case File Manager*")
 Check ($rules.Count -eq 2) "two firewall rules installed"
 $out = $rules | Where-Object Direction -eq Outbound
 Check ($out.Action -eq "Block" -and ($out | Get-NetFirewallServiceFilter).Service -eq "CaseFiles-worker") "worker blocked from the internet"
-Check (Test-Path "$env:PUBLIC\Desktop\Case File Manager Control Center.url") "desktop shortcut to the Control Center"
-Check (Test-Path "$root\uninstall.cmd") "uninstall.cmd is in the install folder"
+if ($Desktop) {
+  # Where the installer put the app, from its Settings › Apps entry.
+  $entry = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Where-Object DisplayName -like "Case File Manager*" | Select-Object -First 1
+  $appDir = Split-Path ($entry.UninstallString -replace '^"([^"]+)".*$', '$1')
+  Check ([bool]$appDir -and (Test-Path "$appDir\CaseFileManager.exe")) "the app is listed in Settings › Apps ($appDir)"
+  Check (Test-Path "$env:PUBLIC\Desktop\Case File Manager.lnk") "desktop shortcut to the app"
+  Check (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Case File Manager.lnk") "Start menu shortcut to the app"
+  Check (-not (Test-Path "$env:PUBLIC\Desktop\Case File Manager Control Center.url")) "no browser shortcut"
+  Check (-not (Test-Path "$root\uninstall.cmd")) "no uninstall.cmd (the app is removed from Settings)"
+  $caCopy = "$appDir\resources\local-ca.crt"
+  Check ((Test-Path $caCopy) -and (Get-FileHash $caCopy).Hash -eq (Get-FileHash "$root\certs\ca.crt").Hash) "the app has this computer's CA certificate"
+  Check ((Get-Content -Raw "$root\launcher.json" | ConvertFrom-Json).desktop_app -eq $true) "launcher.json records the desktop install"
+} else {
+  Check (Test-Path "$env:PUBLIC\Desktop\Case File Manager Control Center.url") "desktop shortcut to the Control Center"
+  Check (Test-Path "$root\uninstall.cmd") "uninstall.cmd is in the install folder"
+}
 $in = $rules | Where-Object Direction -eq Inbound
 Check ($in.Profile -eq "Private") "web app port open on Private networks only ($($in.Profile))"
 
@@ -231,6 +248,26 @@ Stop-Process -Id $before.pid -Force
 Start-Sleep -Seconds 10
 $after = Get-Content -Raw "$root\logs\worker\status.json" | ConvertFrom-Json
 Check ($after.running -and $after.pid -ne $before.pid -and $after.restarts -ge 1) "worker restarted after a crash (pid $($before.pid) -> $($after.pid))"
+
+if ($Desktop) {
+  # The app window must trust the local certificate and show the case manager.
+  $out = Join-Path $env:RUNNER_TEMP "desktop-smoke.txt"
+  $p = Start-Process -FilePath "$appDir\CaseFileManager.exe" -ArgumentList "--smoke-test=$out" -PassThru -Wait
+  $result = if (Test-Path $out) { (Get-Content -Raw $out).Trim() } else { "no result" }
+  Check ($p.ExitCode -eq 0 -and $result.StartsWith("OK https://localhost/")) "the app window loads the case manager over trusted HTTPS ($result)"
+
+  if ($Screenshot) {
+    $app = Start-Process -FilePath "$appDir\CaseFileManager.exe" -PassThru
+    Start-Sleep -Seconds 15
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+    [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+    $bmp.Save($Screenshot, [System.Drawing.Imaging.ImageFormat]::Png)
+    Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+    Get-Process CaseFileManager -ErrorAction SilentlyContinue | Stop-Process -Force
+  }
+}
 
 if ($failures.Count) {
   Write-Host ""

@@ -95,6 +95,9 @@ func Run(o Options) error {
 	if err != nil {
 		fmt.Fprintln(o.Out)
 		fmt.Fprintln(o.Out, plain(err))
+		if o.ErrorOut != "" {
+			_ = os.WriteFile(o.ErrorOut, []byte(plain(err)), 0o600)
+		}
 		if o.Pause {
 			pause(os.Stdin, o.Out)
 		}
@@ -132,6 +135,12 @@ func (r *runner) install() (string, error) {
 	src := filepath.Dir(self)
 	if _, err := os.Stat(filepath.Join(src, "app", "requirements-windows.txt")); err != nil && !sameFile(src, l.root) {
 		return "", fail("the app folder isn't next to Setup.exe.", "Extract the whole install zip (right-click it, Extract All), then double-click Setup.exe in the extracted folder.")
+	}
+
+	existing, _ := os.ReadFile(l.configPath())
+	if desktopApp(existing) {
+		r.o.DesktopApp = true
+		o.DesktopApp = true
 	}
 
 	r.step(1, "Checking this computer")
@@ -179,14 +188,23 @@ func (r *runner) install() (string, error) {
 			return "", fail("the app couldn't be copied: "+err.Error()+".", "Check free disk space, then double-click Setup.exe again.")
 		}
 	}
-	_ = os.WriteFile(filepath.Join(l.root, "uninstall.cmd"), []byte(uninstallCmd), 0o644)
 	_ = os.Remove(filepath.Join(l.root, "uninstall.ps1")) // left by older installs
-	if pub := os.Getenv("PUBLIC"); pub != "" {
-		_ = os.WriteFile(filepath.Join(pub, "Desktop", shortcutName), []byte(shortcut(o.Port)), 0o644)
+	pub := os.Getenv("PUBLIC")
+	if o.DesktopApp {
+		// The desktop app has its own shortcuts and is uninstalled from
+		// Settings › Apps; remove what an earlier zip install left.
+		_ = os.Remove(filepath.Join(l.root, "uninstall.cmd"))
+		if pub != "" {
+			_ = os.Remove(filepath.Join(pub, "Desktop", shortcutName))
+		}
+	} else {
+		_ = os.WriteFile(filepath.Join(l.root, "uninstall.cmd"), []byte(uninstallCmd), 0o644)
+		if pub != "" {
+			_ = os.WriteFile(filepath.Join(pub, "Desktop", shortcutName), []byte(shortcut(o.Port)), 0o644)
+		}
 	}
 
 	r.step(4, "Registering the Windows services")
-	existing, _ := os.ReadFile(l.configPath())
 	cfg, err := mergeConfig(existing, l, o)
 	if err != nil {
 		return "", fail(err.Error()+".", "Delete "+l.configPath()+", then double-click Setup.exe again.")
@@ -202,6 +220,12 @@ func (r *runner) install() (string, error) {
 	r.step(5, "Creating the HTTPS certificates and the setup code")
 	if out, err := exec.Command(l.exe(), "--config", l.configPath(), "prepare").CombinedOutput(); err != nil {
 		return "", fail("the certificates couldn't be created: "+strings.TrimSpace(string(out))+".", "Check free disk space, then double-click Setup.exe again.")
+	}
+	if o.CAOut != "" {
+		// The CA certificate is public; the desktop app trusts only it.
+		if err := copyFile(filepath.Join(l.certs, "ca.crt"), o.CAOut); err != nil {
+			return "", fail("the certificate couldn't be shared with the desktop app: "+err.Error()+".", "Run the Case File Manager installer again.")
+		}
 	}
 
 	r.step(6, "Setting folder permissions")
@@ -246,6 +270,11 @@ func (r *runner) install() (string, error) {
 	} else {
 		r.say("Setup is already complete. Sign in with your Admin account.")
 	}
+	if o.DesktopApp {
+		r.say("The Case File Manager app opens the Control Center, which installs Python, Tesseract OCR,")
+		r.say("Ollama and the embedding model by itself (about 3 GB), then starts every service.")
+		return url, nil
+	}
 	r.say("The Control Center is opening in your browser. It installs Python, Tesseract OCR, Ollama and")
 	r.say("the embedding model by itself (about 3 GB), then starts every service. You can watch it there.")
 	r.say("Next time, open it from the \"Case File Manager Control Center\" shortcut on the desktop.")
@@ -253,7 +282,8 @@ func (r *runner) install() (string, error) {
 	return url, nil
 }
 
-// Uninstall removes the services, firewall rules and desktop shortcut. It
+// Uninstall removes the services, firewall rules and desktop shortcut. The
+// desktop app's uninstaller runs it too. It
 // keeps case data, the audit log and the certificates.
 func Uninstall(o Options) error {
 	if !Elevated() {

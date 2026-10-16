@@ -1,0 +1,21 @@
+{
+  "name": "case-file-manager",
+  "productName": "Case File Manager",
+  "version": "0.1.0",
+  "description": "Case File Manager desktop app",
+  "author": "Case File Manager",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "tsc -p . && node --test dist/*.test.js",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "electron": "44.4.5",
+    "electron-builder": "26.16.1",
+    "typescript": "^5.9.3"
+  }
+}

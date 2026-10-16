@@ -20,3 +20,7 @@ services/api/app/web/
 web/node_modules/
 web/dist/
 services/api/tests/samples/download/
+
+# Desktop app
+desktop/node_modules/
+desktop/dist/
