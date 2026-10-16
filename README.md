@@ -28,7 +28,7 @@ Each app service is hosted by `launcher.exe host <service>` under its own virtua
 |---|---|
 | `launcher/` | Go launcher: allow-list, auth, audit, service supervisor, health checks, component installer with pinned downloads (`internal/components/runtimes.json`), HTTPS server |
 | `control-center/` | React Control Center, built into the launcher binary |
-| `desktop/` | Electron desktop app and its installer ("Case File Manager Setup.exe"). It shows the web app and Control Center from this computer, trusts only the local CA, and loads nothing from the internet. The installer runs Setup.exe to register the services. |
+| `desktop/` | Electron desktop app and its installer ("CaseFileManager-Setup-<version>.exe"). It shows the web app and Control Center from this computer, trusts only the local CA, and loads nothing from the internet. The installer runs Setup.exe to register the services. |
 | `services/api/` | FastAPI web app and background worker. The app has sign-in, people and roles, cases, file upload and a hash-chained audit log, all in `app.db` (SQLite) with originals under `data/cases/<case-id>/original/`. Case access is checked on the server for every route (`app/access.py`). |
 | `scripts/` | Build script and the Windows CI smoke test. The Windows installer (Setup.exe) is `launcher/internal/setup`. |
 | `docs/` | Design brief, tokens, architecture, install, certificate and backup guides |

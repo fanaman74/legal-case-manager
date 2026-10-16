@@ -111,8 +111,14 @@ jobs:
 
   windows-install:
     # Runs the real installer on Windows and checks the result end to end.
+    # Windows Server 2025 is built on the same release as Windows 11 24H2;
+    # Server 2022 matches Windows 10 and early Windows 11.
     needs: [runtimes]
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-2022]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -133,7 +139,8 @@ jobs:
         shell: pwsh
         run: |
           # The runner is already an administrator, so the installer doesn't ask Windows for permission.
-          $setup = Get-ChildItem "dist\desktop\Case File Manager Setup *.exe" | Select-Object -First 1
+          [System.Environment]::OSVersion.Version | Out-String | Write-Host
+          $setup = Get-ChildItem "dist\desktop\CaseFileManager-Setup-*.exe" | Select-Object -First 1
           $p = Start-Process -FilePath $setup.FullName -ArgumentList "/S" -PassThru -Wait
           if ($p.ExitCode -ne 0) { Write-Host "Installer exit code $($p.ExitCode)"; exit 1 }
           if (-not (Get-Service CaseFileManagerLauncher -ErrorAction SilentlyContinue)) { Write-Host "The launcher service wasn't registered"; exit 1 }
@@ -164,9 +171,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-installer
+          name: desktop-installer-${{ matrix.os }}
           path: |
-            dist/desktop/Case File Manager Setup *.exe
+            dist/desktop/CaseFileManager-Setup-*.exe
             ${{ runner.temp }}/desktop.png
           if-no-files-found: ignore
       - name: Show logs
@@ -176,3 +183,36 @@ jobs:
           foreach ($f in @("C:\CaseFiles\launcher\launcher.log") + @(Get-ChildItem C:\CaseFiles\logs -Recurse -Filter service.log -ErrorAction SilentlyContinue).FullName) {
             if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 80 }
           }
+
+  publish-installer:
+    # Puts the tested installer on the repository's Releases page as a
+    # direct .exe download (a pre-release named "Desktop app preview"),
+    # replaced on every green run. Not for pull requests from forks.
+    needs: [windows-install, launcher, desktop, api]
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-installer-windows-2025
+          path: installer
+      - name: Publish the installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          exe=$(find installer -name 'CaseFileManager-Setup-*.exe' | head -1)
+          test -n "$exe"
+          sum=$(sha256sum "$exe" | cut -d' ' -f1)
+          gh release delete desktop-preview --yes --cleanup-tag 2>/dev/null || true
+          gh release create desktop-preview "$exe" --prerelease --target "$SHA" \
+            --title "Desktop app preview" \
+            --notes "Case File Manager desktop installer built from \`$BRANCH\` at $SHA, after the Windows install test passed on Windows Server 2025 (the Windows 11 24H2 base) and Server 2022.
+
+          Download **$(basename "$exe")** below and double-click it. It isn't code-signed yet, so Windows asks you to confirm once (More info, then Run anyway).
+
+          SHA-256: \`$sum\`"

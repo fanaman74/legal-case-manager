@@ -1,4 +1,4 @@
-# Builds "Case File Manager Setup.exe": the desktop app plus the services'
+# Builds "CaseFileManager-Setup-<version>.exe": the desktop app plus the services'
 # install folder (scripts/build.sh windows), which the installer hands to
 # Setup.exe to register the Windows services. See build/installer.nsh.
 appId: com.casefilemanager.desktop
@@ -31,7 +31,7 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Case File Manager
   uninstallDisplayName: Case File Manager
-  artifactName: Case File Manager Setup ${version}.exe
+  artifactName: CaseFileManager-Setup-${version}.exe
   deleteAppDataOnUninstall: false
   include: build/installer.nsh
 publish: null

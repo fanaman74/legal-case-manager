@@ -3,7 +3,7 @@
 # screens (served by the API from services/api/app/web).
 #   scripts/build.sh            -> dist/launcher (this platform)
 #   scripts/build.sh windows    -> dist/windows/ (Setup.exe, the app and the install notes)
-#   scripts/build.sh desktop    -> dist/desktop/Case File Manager Setup <version>.exe, the
+#   scripts/build.sh desktop    -> dist/desktop/CaseFileManager-Setup-<version>.exe, the
 #                                  desktop app with dist/windows inside (build it on Windows)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -25,7 +25,7 @@ if [[ "${1:-}" == "windows" || "${1:-}" == "desktop" ]]; then
   cp docs/trust-certificate.md "$out/"
   if [[ "${1:-}" == "desktop" ]]; then
     (cd desktop && npm ci && npm version --no-git-tag-version --allow-same-version "${VERSION%-dev}" >/dev/null && npm run dist)
-    echo "Built dist/desktop. Double-click \"Case File Manager Setup\" on the Windows computer."
+    echo "Built dist/desktop. Double-click CaseFileManager-Setup-<version>.exe on the Windows computer."
   else
     echo "Built $out. Copy the folder to the Windows computer and double-click Setup.exe."
   fi

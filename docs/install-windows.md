@@ -11,11 +11,12 @@ You double-click one file. After that, everything happens in the Case File Manag
 
 ## Install
 
-1. Double-click **Case File Manager Setup.exe**. If Windows shows "Windows protected your PC", choose **More info**, then **Run anyway** (the file isn't code-signed yet).
-2. Windows asks whether to allow changes. Choose **Yes**.
-3. A progress bar runs for about a minute while the services are set up. Then the app opens, with the Control Center already past the setup code.
-4. The Control Center's **Components** section shows the launcher downloading and installing Python, Tesseract OCR, Ollama and the embedding model. When they're done, it starts every service by itself. Then create your Admin account in the setup wizard.
-5. The case manager window switches from "isn't answering yet" to the sign-in page by itself once the web app is running.
+1. Download **CaseFileManager-Setup-<version>.exe** from the repository's **Releases** page (the "Desktop app preview" release). Because the installer isn't code-signed yet, your browser may warn about it; in Chrome, open the Downloads list (Ctrl+J) and choose **Keep** (or **Download dangerous file**).
+2. Double-click the downloaded file. If Windows shows "Windows protected your PC", choose **More info**, then **Run anyway**.
+3. Windows asks whether to allow changes. Choose **Yes**.
+4. A progress bar runs for about a minute while the services are set up. Then the app opens, with the Control Center already past the setup code.
+5. The Control Center's **Components** section shows the launcher downloading and installing Python, Tesseract OCR, Ollama and the embedding model. When they're done, it starts every service by itself. Then create your Admin account in the setup wizard.
+6. The case manager window switches from "isn't answering yet" to the sign-in page by itself once the web app is running.
 
 There's no certificate warning in the app: it trusts only the certificate authority Case File Manager created on this computer. Colleagues who open the case manager in a browser on another computer still see the warning until they trust the CA once ([trust-certificate.md](trust-certificate.md)).
 
@@ -33,7 +34,7 @@ If the Control Center asks for the setup code (for example if the app was closed
 
 The Control Center's **Components** section lists each program the app needs, its version and whether it's installed. Use **Install**, **Update** or **Reinstall** on a row, or **Install what's missing** for all of them. The launcher stops the services that use a program while it's replaced and starts them again afterwards. It also installs anything missing each time it starts. Every install is recorded in the audit log.
 
-To upgrade, double-click the newer **Case File Manager Setup.exe**. It keeps your cases, accounts and audit log. The app doesn't update itself, because that would mean checking a server on the internet. If the new version pins newer programs, the launcher updates them when it starts.
+To upgrade, double-click the newer **CaseFileManager-Setup-<version>.exe**. It keeps your cases, accounts and audit log. The app doesn't update itself, because that would mean checking a server on the internet. If the new version pins newer programs, the launcher updates them when it starts.
 
 ## What gets installed
 
