@@ -1,9 +1,57 @@
 import json
+import os
+import socket
+import subprocess
+import time
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app import main, runtime, settings
+
+# RUST_SERVER=path/to/casefiles runs these tests against the Rust version
+# instead of the Python one: each test starts the Rust server on its own data
+# folder, and the same requests must get the same answers. Tests that reach
+# into the Python version's internals are marked python_only.
+RUST_SERVER = os.environ.get("RUST_SERVER", "")
+_rust = {"url": None}
+
+
+def pytest_collection_modifyitems(config, items):
+    if not RUST_SERVER:
+        return
+    skip = pytest.mark.skip(reason="checks Python internals; the Rust version has its own unit test")
+    for item in items:
+        if item.get_closest_marker("python_only"):
+            item.add_marker(skip)
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def start_rust(data_dir, **env) -> subprocess.Popen:
+    port = _free_port()
+    proc = subprocess.Popen(
+        [RUST_SERVER],
+        env={**os.environ, "DATA_DIR": str(data_dir), "PORT": str(port), "HOST": "127.0.0.1", "APP_VERSION": "test", "FIRST_RUN_ADMIN": "0", **env},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    url = f"https://127.0.0.1:{port}"
+    for _ in range(200):
+        try:
+            if httpx.get(url + "/health", verify=False).status_code == 200:
+                _rust["url"] = url
+                return proc
+        except httpx.HTTPError:
+            time.sleep(0.05)
+        if proc.poll() is not None:
+            raise RuntimeError(proc.stderr.read().decode())
+    raise RuntimeError("the Rust server didn't start")
 
 # Made by the launcher's own hashPassword (launcher/internal/auth/auth.go), so
 # these tests prove the app accepts the launcher's Argon2id format.
@@ -15,7 +63,12 @@ class Client:
     """A browser: keeps the session cookie and sends the CSRF token."""
 
     def __init__(self, ip: str = "127.0.0.1"):
-        self.http = TestClient(main.app, base_url="https://cases.local", client=(ip, 50000))
+        if RUST_SERVER:
+            # The Rust server sees a real connection from 127.0.0.1; the Host
+            # header matches the Python tests' https://cases.local.
+            self.http = httpx.Client(base_url=_rust["url"], verify=False, headers={"Host": "cases.local"})
+        else:
+            self.http = TestClient(main.app, base_url="https://cases.local", client=(ip, 50000))
         self.csrf = ""
 
     def request(self, method: str, url: str, **kw):
@@ -55,7 +108,11 @@ class Client:
 def cfg(tmp_path, monkeypatch):
     c = settings.Settings(tmp_path / "data", "local", "test")
     monkeypatch.setattr(main.app.state, "rt", runtime.Runtime(c))
-    return c
+    proc = start_rust(c.data_dir) if RUST_SERVER else None
+    yield c
+    if proc:
+        proc.terminate()
+        proc.wait()
 
 
 @pytest.fixture

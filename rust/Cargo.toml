@@ -1,0 +1,42 @@
+[package]
+name = "casefiles"
+version = "0.1.0"
+edition = "2021"
+description = "Case File Manager: the web app and API, in one program"
+publish = false
+
+[[bin]]
+name = "casefiles"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+argon2 = "0.5"
+axum = { version = "0.8", features = ["macros"] }
+axum-server = { version = "0.7", default-features = false, features = ["tls-rustls-no-provider"] }
+base64 = "0.22"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+futures-util = "0.3"
+hex = "0.4"
+ipnet = "2"
+rand = "0.8"
+rcgen = "0.13"
+rusqlite = { version = "0.32", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tower = "0.5"
+which = "6"
+uuid = { version = "1", features = ["v4"] }
+mime_guess = "2"
+percent-encoding = "2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

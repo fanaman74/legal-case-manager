@@ -6,7 +6,9 @@ import stat
 
 import pytest
 
+from app import settings
 from app.routes.files import split_path
+from conftest import ADMIN_PASSWORD, RUST_SERVER, Client, start_rust, write_admin
 
 
 @pytest.fixture
@@ -67,6 +69,7 @@ def test_split_path():
     assert split_path("file.pdf") == ("", "file.pdf")
 
 
+@pytest.mark.python_only
 def test_size_limit(admin, case, cfg, monkeypatch, rt):
     monkeypatch.setattr(rt, "cfg", cfg.__class__(**{**cfg.__dict__, "max_upload_bytes": 10}))
     r = admin.upload(case, "big.pdf", b"x" * 11)
@@ -76,6 +79,7 @@ def test_size_limit(admin, case, cfg, monkeypatch, rt):
     assert not list((cfg.cases_dir / case / "original").glob(".incoming-*"))
 
 
+@pytest.mark.python_only
 def test_size_limit_without_content_length(admin, case, cfg, monkeypatch, rt):
     monkeypatch.setattr(rt, "cfg", cfg.__class__(**{**cfg.__dict__, "max_upload_bytes": 10}))
 
@@ -142,3 +146,26 @@ def test_missing_original_reported(admin, case, cfg):
     path.chmod(0o600)
     path.unlink()
     assert admin.get(f"/api/cases/{case}/files/{f['id']}/original").status_code == 410
+
+
+@pytest.mark.skipif(not RUST_SERVER, reason="the Python version's limit is tested above")
+def test_size_limit_rust(tmp_path):
+    proc = start_rust(tmp_path / "data", MAX_UPLOAD_MB="1")
+    try:
+        write_admin(settings.Settings(tmp_path / "data", "local", "test"))
+        c = Client()
+        assert c.sign_in("fred", ADMIN_PASSWORD).status_code == 200
+        case = c.post("/api/cases", json={"name": "Big"}).json()["id"]
+        r = c.upload(case, "big.pdf", b"x" * (2**20 + 1))
+        assert r.status_code == 413 and "1 MB limit" in r.json()["detail"]
+
+        def body():
+            yield b"x" * 2**19
+            yield b"x" * (2**19 + 1)
+
+        assert c.put(f"/api/cases/{case}/files", params={"path": "big.pdf"}, content=body()).status_code == 413
+        assert c.get(f"/api/cases/{case}/files").json()["total"] == 0
+        assert not list((tmp_path / "data" / "cases" / case / "original").glob(".incoming-*"))
+    finally:
+        proc.terminate()
+        proc.wait()
