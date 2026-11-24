@@ -37,7 +37,7 @@ def start_rust(data_dir, **env) -> subprocess.Popen:
     port = _free_port()
     proc = subprocess.Popen(
         [RUST_SERVER],
-        env={**os.environ, "DATA_DIR": str(data_dir), "PORT": str(port), "HOST": "127.0.0.1", "APP_VERSION": "test", "FIRST_RUN_ADMIN": "0", **env},
+        env={**os.environ, "DATA_DIR": str(data_dir), "PORT": str(port), "HOST": "127.0.0.1", "APP_VERSION": "test", "FIRST_RUN_ADMIN": "0", "WORKER": "0", **env},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
     )

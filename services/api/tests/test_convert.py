@@ -1,13 +1,38 @@
 """Converters, on generated files and on real Outlook messages."""
 
+import json
 import os
 import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 
 import pytest
 
 from app.convert import ConversionError, Options, convert, emailmd, html, rtf
+from app.convert.common import Attachment, Result
 from app.convert.markdown import front_matter, split_front_matter, table
 from tests import samples
+from tests.conftest import RUST_SERVER
+
+
+def rust_convert(path: Path, ext: str, opts: Options) -> Result:
+    """The same converters in the Rust version: `casefiles convert`."""
+    with tempfile.TemporaryDirectory() as out:
+        cmd = [RUST_SERVER, "convert", str(path), ext, out] + (["--ocr"] if opts.ocr else []) + (["--previews"] if opts.previews else [])
+        subprocess.run(cmd, check=True, timeout=600)
+        info = json.loads((Path(out) / "result.json").read_text(encoding="utf-8"))
+        if "error" in info:
+            raise ConversionError(info["error"])
+        if opts.previews and (Path(out) / "previews").is_dir():
+            shutil.copytree(Path(out) / "previews", opts.previews, dirs_exist_ok=True)
+        names = info.pop("attachments")
+        attachments = [Attachment(n, (Path(out) / "attachments" / str(i)).read_bytes()) for i, n in enumerate(names)]
+        return Result(body=(Path(out) / "body.md").read_text(encoding="utf-8"), attachments=attachments, **info)
+
+
+if RUST_SERVER:
+    convert = rust_convert  # noqa: F811
 
 needs_ocr = pytest.mark.skipif(
     not shutil.which("tesseract") and not os.environ.get("REQUIRE_OCR"),
@@ -149,6 +174,7 @@ def test_msg_not_outlook(tmp_path):
         run(tmp_path, "x.msg", b"hello")
 
 
+@pytest.mark.python_only  # a Rust unit test checks the same
 def test_reply_separators():
     for sep in ("-----Original Message-----", "On Tue, 5 Mar 2024 at 14:22, Jane Doe <j@x.com> wrote:", "________________________________"):
         new, quoted = emailmd.split_quoted(f"Thanks.\n\n{sep}\nolder text")
@@ -158,6 +184,7 @@ def test_reply_separators():
     assert emailmd.split_quoted("No quotes here.\nFrom: the start.") == ("No quotes here.\nFrom: the start.", "")
 
 
+@pytest.mark.python_only  # a Rust unit test checks the same
 def test_rtf_plain_and_html_bodies():
     unicode_euro = "\\" + "u8364?"  # RTF's \uN escape, written out so nothing decodes it early
     assert rtf.decode(r"{\rtf1\ansi\ansicpg1252 {\fonttbl{\f0 Arial;}}Hello\par Caf\'e9 " + unicode_euro + " done}") == ("text", "Hello\nCafé € done")
@@ -175,6 +202,7 @@ def test_text_keeps_lines_and_escapes(tmp_path):
     assert "Café" in r.body and r.warnings
 
 
+@pytest.mark.python_only  # a Rust unit test checks the same
 def test_html_to_markdown():
     md = html.to_markdown("<style>x{}</style><h2>Terms</h2><p>See <a href='https://example.com'>here</a>.</p><ul><li>a<ul><li>b</li></ul></li></ul><table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>")
     assert "## Terms" in md and "[here](https://example.com)" in md
@@ -184,6 +212,7 @@ def test_html_to_markdown():
     assert html.to_markdown("<a href='javascript:alert(1)'>click</a>").strip() == "click"
 
 
+@pytest.mark.python_only  # a Rust unit test checks the same
 def test_front_matter_round_trip():
     fm = front_matter({"doc_id": "abc", "source_filename": 'He said: "no" #1', "page_count": 3, "ocr": False, "to": ["a <a@x>", "b"], "empty": None})
     head, body = split_front_matter(fm + "body")
@@ -192,5 +221,6 @@ def test_front_matter_round_trip():
     assert '  - "a <a@x>"' in head and "empty" not in head
 
 
+@pytest.mark.python_only  # a Rust unit test checks the same
 def test_table_pipes_and_breaks():
     assert table([["a|b", "c\nd"], ["1", ""]]) == "| a\\|b | c<br>d |\n|---|---|\n| 1 |  |"

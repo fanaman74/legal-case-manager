@@ -88,6 +88,44 @@ impl Storage {
         Ok(dest)
     }
 
+    /// A scratch folder for one conversion, on the case's disk.
+    pub fn work_dir(&self, case_id: &str) -> io::Result<PathBuf> {
+        let folder = self.case_dir(case_id)?.join(format!(".work-{}", util::token_hex(8)));
+        std::fs::create_dir_all(&folder)?;
+        Ok(folder)
+    }
+
+    pub fn write_markdown(&self, case_id: &str, file_id: &str, text: &str) -> io::Result<PathBuf> {
+        let dest = self.markdown(case_id, file_id)?;
+        std::fs::create_dir_all(dest.parent().unwrap())?;
+        let tmp = dest.with_extension(format!("tmp-{}", util::token_hex(4)));
+        std::fs::write(&tmp, text)?;
+        std::fs::rename(&tmp, &dest)?;
+        Ok(dest)
+    }
+
+    /// Swap in a new set of page images (or remove them).
+    pub fn replace_previews(&self, case_id: &str, file_id: &str, src: Option<&Path>) -> io::Result<()> {
+        let dest = self.previews(case_id, file_id)?;
+        if dest.exists() {
+            let old = dest.with_file_name(format!(".old-{file_id}-{}", util::token_hex(4)));
+            std::fs::rename(&dest, &old)?;
+            let _ = std::fs::remove_dir_all(old);
+        }
+        if let Some(src) = src.filter(|s| s.is_dir()) {
+            std::fs::create_dir_all(dest.parent().unwrap())?;
+            std::fs::rename(src, &dest)?;
+        }
+        Ok(())
+    }
+
+    /// Store a new original from bytes (an email attachment).
+    pub fn keep_bytes(&self, case_id: &str, file_id: &str, ext: &str, data: &[u8]) -> io::Result<PathBuf> {
+        let tmp = self.incoming(case_id)?;
+        std::fs::write(&tmp, data)?;
+        self.keep(&tmp, case_id, file_id, ext)
+    }
+
     /// Move a case's folder aside in one step, so a delete either takes the
     /// whole folder or nothing (Windows refuses if a file is open).
     pub fn trash_case(&self, case_id: &str) -> io::Result<()> {

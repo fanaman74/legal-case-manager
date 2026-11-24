@@ -2,6 +2,8 @@
 //! queue service. The web app adds jobs; the worker takes them.
 
 use rusqlite::{Connection, OptionalExtension};
+
+use crate::db::{write_tx, Database};
 use serde_json::{json, Map, Value};
 
 use crate::accounts::User;
@@ -56,4 +58,81 @@ pub fn counts(db: &Connection, case_ids: Option<&[String]>) -> rusqlite::Result<
         }
     }
     Ok(Value::Object(out))
+}
+
+/// A job taken from the queue.
+pub struct Job {
+    pub id: i64,
+    pub kind: String,
+    pub case_id: Option<String>,
+    pub file_id: Option<String>,
+    pub options: Value,
+    pub attempts: i64,
+}
+
+/// Take the oldest waiting job of these kinds.
+pub fn claim(database: &Database, kinds: &[&str]) -> rusqlite::Result<Option<Job>> {
+    let mut conn = database.connect()?;
+    let tx = write_tx(&mut conn)?;
+    let marks = vec!["?"; kinds.len()].join(",");
+    let mut args: Vec<String> = vec![util::now()];
+    args.extend(kinds.iter().map(|k| k.to_string()));
+    let job = tx
+        .query_row(
+            &format!(
+                "UPDATE jobs SET state = 'running', started_at = ?, attempts = attempts + 1
+                 WHERE id = (SELECT id FROM jobs WHERE state = 'queued' AND kind IN ({marks}) ORDER BY id LIMIT 1)
+                 RETURNING id, kind, case_id, file_id, options, attempts"
+            ),
+            rusqlite::params_from_iter(args),
+            |r| {
+                let options: Option<String> = r.get(4)?;
+                Ok(Job {
+                    id: r.get(0)?,
+                    kind: r.get(1)?,
+                    case_id: r.get(2)?,
+                    file_id: r.get(3)?,
+                    options: serde_json::from_str(options.as_deref().filter(|o| !o.is_empty()).unwrap_or("{}")).unwrap_or_else(|_| json!({})),
+                    attempts: r.get(5)?,
+                })
+            },
+        )
+        .optional()?;
+    tx.commit()?;
+    Ok(job)
+}
+
+pub fn finish(db: &Connection, job_id: i64) -> rusqlite::Result<()> {
+    db.execute("UPDATE jobs SET state = 'done', finished_at = ?, error = '' WHERE id = ?", (util::now(), job_id))?;
+    Ok(())
+}
+
+pub fn fail(db: &Connection, job_id: i64, error: &str) -> rusqlite::Result<()> {
+    db.execute("UPDATE jobs SET state = 'failed', finished_at = ?, error = ? WHERE id = ?", (util::now(), error, job_id))?;
+    Ok(())
+}
+
+pub fn retry_later(db: &Connection, job_id: i64) -> rusqlite::Result<()> {
+    db.execute("UPDATE jobs SET state = 'queued', started_at = NULL WHERE id = ?", [job_id])?;
+    Ok(())
+}
+
+/// Jobs left running by a worker that stopped go back in the queue.
+pub fn recover(database: &Database) -> rusqlite::Result<usize> {
+    let mut conn = database.connect()?;
+    let tx = write_tx(&mut conn)?;
+    tx.execute("UPDATE files SET ocr_state = 'waiting' WHERE ocr_state = 'running'", [])?;
+    let n = tx.execute("UPDATE jobs SET state = 'queued', started_at = NULL WHERE state = 'running'", [])?;
+    tx.commit()?;
+    Ok(n)
+}
+
+/// Finished jobs are kept a week for the job list, then removed.
+pub fn tidy(database: &Database) -> rusqlite::Result<()> {
+    let conn = database.connect()?;
+    conn.execute(
+        "DELETE FROM jobs WHERE state IN ('done', 'cancelled') AND finished_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')",
+        [],
+    )?;
+    Ok(())
 }

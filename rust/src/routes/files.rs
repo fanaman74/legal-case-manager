@@ -489,8 +489,7 @@ pub async fn download(State(st): State<AppState>, CurrentUser(user, ip): Current
 
 /// Whether Tesseract is installed (the launcher sets TESSERACT_CMD).
 pub fn ocr_available() -> bool {
-    let cmd = std::env::var("TESSERACT_CMD").ok().filter(|c| !c.is_empty()).unwrap_or_else(|| "tesseract".into());
-    which::which(cmd).is_ok()
+    crate::convert::ocr::tesseract_cmd().is_some()
 }
 
 fn wants_ocr(row: &FileRow) -> bool {
@@ -499,21 +498,21 @@ fn wants_ocr(row: &FileRow) -> bool {
 
 /// Queue reading a file's scanned pages, or note that OCR isn't installed yet
 /// (the worker tries again once it is).
-pub fn queue_ocr(db: &Connection, row: &FileRow, user: Option<&User>) -> rusqlite::Result<&'static str> {
+pub fn queue_ocr(db: &Connection, case_id: &str, file_id: &str, user: Option<&User>) -> rusqlite::Result<&'static str> {
     let state = if !ocr_available() {
         "unavailable"
     } else {
-        jobs::enqueue(db, "ocr", Some(&row.case_id), Some(&row.id), Some(json!({"ocr": true})), user)?;
+        jobs::enqueue(db, "ocr", Some(case_id), Some(file_id), Some(json!({"ocr": true})), user)?;
         "waiting"
     };
-    db.execute("UPDATE files SET ocr_state = ?, ocr_error = '' WHERE id = ?", (state, &row.id))?;
+    db.execute("UPDATE files SET ocr_state = ?, ocr_error = '' WHERE id = ?", (state, file_id))?;
     Ok(state)
 }
 
 fn queue_convert(db: &Connection, user: &User, row: &FileRow, ocr: bool, ip: &str) -> rusqlite::Result<()> {
     if ocr && wants_ocr(row) {
         // Read the scanned pages in the background; the file stays usable.
-        queue_ocr(db, row, Some(user))?;
+        queue_ocr(db, &row.case_id, &row.id, Some(user))?;
     } else {
         // A file read with OCR before is read with OCR again.
         jobs::enqueue(db, "convert", Some(&row.case_id), Some(&row.id), Some(json!({"ocr": ocr || row.ocr})), Some(user))?;
