@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Rust version as a folder you can unzip and run:
-#   dist/rust/CaseFileManager/casefiles(.exe) and web/ (the screens)
+#   dist/rust/CaseFileManager/casefiles(.exe), pdfium.dll (reads PDFs) and
+#   web/ (the screens)
 #   dist/rust/CaseFileManager-rust-windows.zip on Windows
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -10,6 +11,7 @@ out=dist/rust/CaseFileManager
 rm -rf dist/rust && mkdir -p "$out"
 exe=casefiles; [[ "${OS:-}" == "Windows_NT" ]] && exe=casefiles.exe
 cp "rust/target/release/$exe" "$out/"
+scripts/get-pdfium.sh "$out"
 cp -r services/api/app/web "$out/web"
 cp rust/README-run.txt "$out/README.txt"
 if [[ "${OS:-}" == "Windows_NT" ]]; then

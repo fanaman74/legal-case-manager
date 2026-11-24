@@ -14,6 +14,15 @@ Data is kept in C:\CaseFiles-rust\data, apart from the installed app, so
 trying this copy never touches your real case files.
 
 What works in this copy: sign-in, people and roles, cases, uploading files
-and folders, tags, downloads, case activity and the audit log. Conversion to
-Markdown, OCR, search, mailboxes and AI come in the next updates; until then
-uploaded files show "Waiting".
+and folders, tags, downloads, case activity and the audit log, and
+conversion to Markdown in the background (Word, PDF, Outlook .msg, .eml,
+text and images), with the side-by-side viewer. Email attachments become
+files of their own.
+
+Scanned pages are read with OCR by themselves if Tesseract is installed (the
+full app's Control Center installs it; for this copy, install it from
+https://github.com/UB-Mannheim/tesseract/wiki). Without it, scanned PDFs are
+marked as waiting for OCR and are read once it is installed.
+
+Search, mailboxes (PST) and AI come in the next updates; until then the
+status bar shows files waiting for indexing.

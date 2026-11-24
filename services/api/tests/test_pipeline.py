@@ -2,17 +2,24 @@
 (the worker's job runs here in the test process; the converter runs in its
 own child process as it does on Windows)."""
 
+import os
 import shutil
+import subprocess
 
 import pytest
 
 from app import jobs, pipeline
 from tests import samples
+from tests.conftest import RUST_SERVER
 from tests.test_convert import needs_ocr
 
 
 def work(rt, kinds=("convert",)) -> int:
     """Run every waiting job, as the worker would. Returns how many ran."""
+    if RUST_SERVER:
+        out = subprocess.run([RUST_SERVER, "work", *kinds], env={**os.environ, "DATA_DIR": str(rt.cfg.data_dir)},
+                             capture_output=True, check=True, timeout=600)
+        return int(out.stdout)
     n = 0
     while (job := jobs.claim(rt.db, kinds)) is not None:
         pipeline.run_convert(rt, job)
@@ -89,6 +96,7 @@ def test_failed_conversion_is_reported_and_retried(admin, case, rt):
     assert admin.get(f"/api/cases/{case}/files/{f['id']}").json()["status"] == "queued"
 
 
+@pytest.mark.python_only  # replaces Python internals
 def test_converter_crash_retried_then_failed(admin, case, rt, monkeypatch):
     f = admin.upload(case, "letter.txt", b"hello").json()["file"]
     monkeypatch.setattr(pipeline.sys, "executable", shutil.which("false") or "/bin/false")
@@ -105,6 +113,7 @@ def no_ocr(monkeypatch):
     monkeypatch.setattr(pipeline, "ocr_available", lambda: False)
 
 
+@pytest.mark.python_only  # replaces Python internals
 def test_scanned_pdf_waits_for_ocr_to_be_installed(admin, case, rt, no_ocr, monkeypatch):
     f = admin.upload(case, "scan.pdf", samples.scanned_pdf_bytes()).json()["file"]
     work(rt)
@@ -140,6 +149,7 @@ def test_scanned_pdf_is_read_with_ocr_by_itself(admin, case, rt):
 
 
 @needs_ocr
+@pytest.mark.python_only  # replaces Python internals
 def test_run_ocr_again_keeps_the_file_usable(admin, case, rt, no_ocr, monkeypatch):
     f = admin.upload(case, "scan.pdf", samples.scanned_pdf_bytes()).json()["file"]
     work(rt)
@@ -152,6 +162,7 @@ def test_run_ocr_again_keeps_the_file_usable(admin, case, rt, no_ocr, monkeypatc
     assert any(e["action"] == "file.ocr" for e in admin.get(f"/api/cases/{case}/activity").json()["items"])
 
 
+@pytest.mark.python_only  # replaces Python internals
 def test_failed_ocr_keeps_the_earlier_conversion(admin, case, rt, no_ocr, monkeypatch):
     f = admin.upload(case, "scan.pdf", samples.scanned_pdf_bytes()).json()["file"]
     work(rt)
@@ -211,6 +222,7 @@ def test_worker_recovers_jobs_after_a_crash(admin, case, rt):
     assert work(rt) == 1
 
 
+@pytest.mark.python_only  # replaces Python internals
 def test_old_files_are_queued_by_the_upgrade(tmp_path):
     """Files stored before conversion existed are converted after upgrading."""
     import sqlite3
@@ -230,6 +242,7 @@ def test_old_files_are_queued_by_the_upgrade(tmp_path):
         assert tuple(c.execute("SELECT kind, file_id, state FROM jobs").fetchone()) == ("convert", "f", "queued")
 
 
+@pytest.mark.python_only  # replaces Python internals
 def test_upgrade_moves_notes_out_of_warnings(tmp_path):
     """Files converted before notes existed: informational messages become
     notes, and scanned PDFs are picked up for OCR by the worker."""

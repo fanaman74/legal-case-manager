@@ -9,15 +9,18 @@ mod access;
 mod accounts;
 mod audit;
 mod config;
+mod convert;
 mod db;
 mod jobs;
 mod notes;
+mod pipeline;
 mod routes;
 mod state;
 mod storage;
 mod tls;
 mod util;
 mod web;
+mod worker;
 
 use std::net::SocketAddr;
 
@@ -69,13 +72,34 @@ pub fn app(st: AppState) -> Router {
         .with_state(st)
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    // `casefiles convert ...` converts one file (run by the worker as a
+    // child process); anything else starts the server.
+    if args.get(1).map(String::as_str) == Some("convert") {
+        std::process::exit(convert::main(&args[2..]));
+    }
+    // `casefiles work convert ocr` runs every waiting job of those kinds and
+    // exits (for tests and for catching up by hand).
+    if args.get(1).map(String::as_str) == Some("work") {
+        let st = AppState::new(config::Settings::load()?)?;
+        let kinds: Vec<&str> = args[2..].iter().map(String::as_str).collect();
+        println!("{}", worker::run_waiting(&st, &kinds)?);
+        return Ok(());
+    }
+    tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(serve())
+}
+
+async fn serve() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cfg = config::Settings::load()?;
     let tls = tls::config(&cfg).await?;
     let st = AppState::new(cfg.clone())?;
     st.storage.empty_trash();
+    // WORKER=0 leaves conversion to `casefiles work` (the tests do this).
+    if std::env::var("WORKER").as_deref() != Ok("0") {
+        worker::start(st.clone());
+    }
     // Started on its own (double-clicked), not by the launcher: make a first
     // Admin if there is none, and open the app in the browser.
     let standalone = cfg.tls_cert.is_empty() && std::env::var("FIRST_RUN_ADMIN").as_deref() != Ok("0");

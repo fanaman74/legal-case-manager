@@ -25,7 +25,7 @@ rcgen = "0.13"
 rusqlite = { version = "0.32", features = ["bundled"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 subtle = "2"
 tokio = { version = "1", features = ["full"] }
@@ -35,6 +35,16 @@ which = "6"
 uuid = { version = "1", features = ["v4"] }
 mime_guess = "2"
 percent-encoding = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }
+roxmltree = "0.21.2"
+regex = "1.13.2"
+pdfium-render = "0.9.6"
+tiff = "0.11.3"
+cfb = "0.16.0"
+mail-parser = "0.11.9"
+encoding_rs = "0.8.44"
+html-escape = "0.3.1"
 
 [profile.release]
 opt-level = 3

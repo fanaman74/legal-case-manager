@@ -199,12 +199,17 @@ jobs:
           python-version: "3.13"
       - working-directory: rust
         run: cargo test --locked && cargo build --release --locked
+      - name: PDF reader and OCR for the converters
+        run: |
+          scripts/get-pdfium.sh rust/target/release
+          sudo apt-get update -q && sudo apt-get install -y -q tesseract-ocr tesseract-ocr-eng
       - working-directory: services/api
         env:
           RUST_SERVER: ${{ github.workspace }}/rust/target/release/casefiles
+          REQUIRE_OCR: "1"
         run: |
           pip install -r requirements-dev.txt
-          pytest -q tests/test_accounts.py tests/test_cases.py tests/test_files.py tests/test_audit.py
+          pytest -q tests/test_accounts.py tests/test_cases.py tests/test_files.py tests/test_audit.py tests/test_convert.py tests/test_pipeline.py
 
   rust-windows:
     # Builds the portable Windows zip (casefiles.exe and the web screens),
@@ -237,6 +242,19 @@ jobs:
           Get-Content "$env:RUNNER_TEMP\cfm.log"
           if (-not $ok) { throw "casefiles.exe didn't serve the app" }
           if (-not (Test-Path "$env:RUNNER_TEMP\cfm-data\FIRST-SIGN-IN.txt")) { throw "no first sign-in note" }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Convert a PDF, an email and a Word file with the zip's own casefiles.exe and pdfium.dll
+        shell: bash
+        working-directory: services/api
+        run: |
+          pip install -q fpdf2==2.8.9 python-docx==1.2.0 pillow==12.3.0
+          python -c "from tests import samples; open('claim.pdf','wb').write(samples.pdf_bytes()); open('reply.eml','wb').write(samples.eml_bytes(attachment=samples.pdf_bytes())); open('s.docx','wb').write(samples.docx_bytes())"
+          exe=../../dist/rust/CaseFileManager/casefiles.exe
+          $exe convert claim.pdf .pdf out-pdf --previews && grep -q "| 15 April 2024 | Delivery due | GBP 125,000 |" out-pdf/body.md && ls out-pdf/previews/p0003.jpg
+          $exe convert reply.eml .eml out-eml && grep -q "The steel did not arrive" out-eml/body.md && ls out-eml/attachments/0
+          $exe convert s.docx .docx out-docx && grep -q "## Background" out-docx/body.md
       - uses: actions/upload-artifact@v4
         with:
           name: casefiles-rust-windows
