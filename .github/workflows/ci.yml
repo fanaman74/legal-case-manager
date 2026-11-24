@@ -184,6 +184,95 @@ jobs:
             if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 80 }
           }
 
+  rust:
+    # The Rust version: its own unit tests, then the Python API tests run
+    # against the Rust server (RUST_SERVER), so both give the same answers.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - working-directory: rust
+        run: cargo test --locked && cargo build --release --locked
+      - working-directory: services/api
+        env:
+          RUST_SERVER: ${{ github.workspace }}/rust/target/release/casefiles
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q tests/test_accounts.py tests/test_cases.py tests/test_files.py tests/test_audit.py
+
+  rust-windows:
+    # Builds the portable Windows zip (casefiles.exe and the web screens),
+    # starts it once to check it answers, and keeps the zip.
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build
+        shell: bash
+        run: scripts/build-rust.sh
+      - name: Start it and check it answers
+        shell: pwsh
+        run: |
+          $env:DATA_DIR = "$env:RUNNER_TEMP\cfm-data"
+          $env:OPEN_BROWSER = "0"
+          $p = Start-Process -FilePath dist\rust\CaseFileManager\casefiles.exe -PassThru -RedirectStandardError "$env:RUNNER_TEMP\cfm.log"
+          $ok = $false
+          for ($i = 0; $i -lt 60 -and -not $ok; $i++) {
+            Start-Sleep -Milliseconds 500
+            try { $r = Invoke-WebRequest -Uri https://localhost:8444/ -SkipCertificateCheck -UseBasicParsing; $ok = $r.Content -match 'id="root"' } catch {}
+          }
+          Stop-Process -Id $p.Id
+          Get-Content "$env:RUNNER_TEMP\cfm.log"
+          if (-not $ok) { throw "casefiles.exe didn't serve the app" }
+          if (-not (Test-Path "$env:RUNNER_TEMP\cfm-data\FIRST-SIGN-IN.txt")) { throw "no first sign-in note" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: casefiles-rust-windows
+          path: dist/rust/CaseFileManager-rust-windows.zip
+
+  publish-rust:
+    # The zip on the Releases page as a direct download (pre-release
+    # "Rust version preview"), replaced on every green run.
+    needs: [rust, rust-windows]
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: casefiles-rust-windows
+          path: zip
+      - name: Publish the zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          z=zip/CaseFileManager-rust-windows.zip
+          sum=$(sha256sum "$z" | cut -d' ' -f1)
+          gh release delete rust-preview --yes --cleanup-tag 2>/dev/null || true
+          gh release create rust-preview "$z" --prerelease --target "$SHA" \
+            --title "Rust version preview" \
+            --notes "Case File Manager rewritten in Rust, built from \`$BRANCH\` at $SHA. A trial copy: it keeps its data in C:\\CaseFiles-rust and never touches the installed app.
+
+          Download **CaseFileManager-rust-windows.zip**, unzip it anywhere and double-click **casefiles.exe**. Your browser opens the app; the first time, the window and FIRST-SIGN-IN.txt in C:\\CaseFiles-rust\\data give the Admin's temporary password. The browser warns about the certificate once (Advanced, then Continue). Close the black window to stop it.
+
+          SHA-256: \`$sum\`"
+
   publish-installer:
     # Puts the tested installer on the repository's Releases page as a
     # direct .exe download (a pre-release named "Desktop app preview"),

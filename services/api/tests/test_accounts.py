@@ -1,5 +1,7 @@
 """Sign-in, sessions, CSRF, passwords and the Admin account from the launcher."""
 
+import pytest
+
 from app import accounts
 from conftest import ADMIN_PASSWORD, Client, write_admin
 
@@ -123,6 +125,7 @@ def test_switched_off_person_is_signed_out(admin, people):
     assert Client().sign_in("bob", "bob chooses a long password").status_code == 403
 
 
+@pytest.mark.python_only
 def test_reset_password_and_unlock(admin, people):
     bob = people("bob", "editor")
     for _ in range(5):

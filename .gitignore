@@ -24,3 +24,6 @@ services/api/tests/samples/download/
 # Desktop app
 desktop/node_modules/
 desktop/dist/
+
+# Rust version
+rust/target/
