@@ -101,8 +101,12 @@ function ProviderCard({ p, local, onChange, onReload }: { p: AiProvider; local: 
   const [test, setTest] = useState<{ ok: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "test" | "toggle" | null>(null);
-  useEffect(() => setModel(p.model), [p.model]);
-  useEffect(() => setUrl(p.base_url), [p.base_url]);
+  useEffect(() => {
+    setModel(p.model);
+  }, [p.model]);
+  useEffect(() => {
+    setUrl(p.base_url);
+  }, [p.base_url]);
   useEffect(() => {
     if (p.id === "ollama") setModels(local.installed);
   }, [p.id, local.installed]);
@@ -233,7 +237,9 @@ function Defaults({ s, onSaved }: { s: AiSettings; onSaved: (d: AiSettings["defa
   const [form, setForm] = useState(s.defaults);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => setForm(s.defaults), [s.defaults]);
+  useEffect(() => {
+    setForm(s.defaults);
+  }, [s.defaults]);
   const ready = s.providers.filter((p) => p.ready);
   const submit = async (e: FormEvent) => {
     e.preventDefault();

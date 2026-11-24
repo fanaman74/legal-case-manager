@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { forwardRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Component, forwardRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { onLinkClick } from "./router";
 
 // ---------------------------------------------------------------------------
@@ -282,4 +282,39 @@ export function Field({ id, label, hint, children }: { id: string; label: string
       {hint && <p className="field__hint" id={`${id}-hint`}>{hint}</p>}
     </div>
   );
+}
+
+/** Keeps the rest of the app on screen when one page hits a bug: the page
+ * shows what went wrong and a way back, instead of a blank window. Reset it
+ * by changing its `resetKey` (the page address). */
+export class PageErrorBoundary extends Component<{ resetKey: string; children: ReactNode }, { error: Error | null; key: string }> {
+  state = { error: null as Error | null, key: this.props.resetKey };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  static getDerivedStateFromProps(props: { resetKey: string }, state: { error: Error | null; key: string }) {
+    return props.resetKey !== state.key ? { error: null, key: props.resetKey } : null;
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("page error", error);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="problem" role="alert">
+        <Icon name="error" />
+        <div className="problem__body">
+          <p className="problem__what">Something went wrong on this page, so it stopped. Nothing was lost: your files and answers are saved.</p>
+          <p className="hint mono">{this.state.error.message}</p>
+          <div className="problem__actions">
+            <Button size="sm" onClick={() => location.reload()}>Reload the page</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 }
