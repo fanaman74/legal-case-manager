@@ -56,13 +56,18 @@ export type CaseFile = {
   page_count: number | null;
   ocr: boolean;
   warnings: string[];
+  /** Things worth knowing about the document that need no action. */
+  notes: string[];
   error: string;
+  /** Reading scanned pages, which happens by itself. */
+  ocr_state: OcrState;
+  ocr_error: string;
   scanned_pages: number[];
   doc_date: string | null;
   title: string | null;
   converted_at: string | null;
   previews: number;
-  search: { state: "" | "indexed" | "keyword_only" | "failed"; passages: number };
+  search: { state: IndexState; passages: number };
   email: { from: string; to: string[]; cc: string[]; date: string | null; subject: string } | null;
   attachments: { name: string; doc_id: string; duplicate?: boolean }[];
   near_duplicate: { of: string; name: string; similarity: number } | null;
@@ -84,11 +89,57 @@ export type CaseExport = {
 
 export type JobCounts = { queued: number; running: number; failed: number; done: number; total: number };
 
+export type OcrState = "" | "waiting" | "running" | "done" | "unavailable" | "failed";
+export type IndexState = "" | "indexed" | "keyword_only" | "failed";
+export type FileStage = "attention" | "working" | "ready";
+
+export type StatusItem = {
+  id: string;
+  name: string;
+  folder: string;
+  type: FileType;
+  size: number;
+  stage: FileStage;
+  status: FileStatus;
+  error: string;
+  warnings: string[];
+  notes: string[];
+  page_count: number | null;
+  scanned_pages: number;
+  ocr: boolean;
+  ocr_state: OcrState;
+  ocr_error: string;
+  index_state: IndexState;
+  passages: number;
+  near_duplicate: boolean;
+  converted_at: string | null;
+  indexed_at: string | null;
+  jobs: Partial<Record<"convert" | "ocr" | "index", "queued" | "running">>;
+};
+
+export type CaseStatus = {
+  summary: {
+    total: number;
+    stages: Record<FileStage, number>;
+    markdown: { done: number; working: number; failed: number };
+    ocr: { needed: number; done: number; working: number; unavailable: number; failed: number };
+    keyword: { done: number; working: number };
+    meaning: { done: number; working: number; waiting_model: number; failed: number };
+    passages: number;
+    warnings: number;
+  };
+  model: string;
+  ocr_installed: boolean;
+  items: StatusItem[];
+  matching: number;
+};
+
 export type Progress = {
   files: Partial<Record<FileStatus, number>>;
   total: number;
   warnings: number;
   scanned: number;
+  ocr: Partial<Record<Exclude<OcrState, "">, number>>;
   near_duplicates: number;
   jobs: Record<string, JobCounts>;
   index: Partial<Record<"waiting" | "indexed" | "keyword_only" | "failed", number>>;
@@ -349,6 +400,7 @@ export const api = {
   reconvert: (id: string, fileId: string, ocr = false) => request<CaseFile>("POST", `/api/cases/${id}/files/${fileId}/convert`, { ocr }),
   bulkConvert: (id: string, what: "ocr_scanned" | "retry_failed") => request<{ queued: number }>("POST", `/api/cases/${id}/convert`, { what }),
   progress: (id: string) => request<Progress>("GET", `/api/cases/${id}/progress`),
+  caseStatus: (id: string, show: "all" | FileStage, limit = 2000) => request<CaseStatus>("GET", `/api/cases/${id}/status?show=${show}&limit=${limit}`),
   status: () => request<{ jobs: Record<string, JobCounts>; files: Partial<Record<FileStatus, number>> }>("GET", "/api/status"),
   jobs: (state?: string) => request<{ items: Job[]; counts: Record<string, JobCounts> }>("GET", `/api/jobs${q({ state })}`),
   retryJob: (jobId: number) => request<{ ok: boolean }>("POST", `/api/jobs/${jobId}/retry`),

@@ -8,6 +8,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from . import notes
+
 MIGRATIONS = [
     """
     CREATE TABLE users (
@@ -242,6 +244,18 @@ MIGRATIONS = [
     INSERT INTO jobs (kind, case_id, created_at)
         SELECT DISTINCT 'dups', case_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM files WHERE status IN ('converted', 'needs_ocr');
     """,
+    # 7: OCR runs by itself. ocr_state says how far a file with scanned pages
+    # has got ('' nothing to read, waiting, running, done, unavailable when
+    # OCR isn't installed yet, failed). Notes are the converter's messages
+    # that need no action; warnings keep only the ones that do.
+    """
+    ALTER TABLE files ADD COLUMN ocr_state TEXT NOT NULL DEFAULT '';
+    ALTER TABLE files ADD COLUMN ocr_error TEXT NOT NULL DEFAULT '';
+    ALTER TABLE files ADD COLUMN notes TEXT NOT NULL DEFAULT '[]';
+    UPDATE files SET ocr_state = 'done' WHERE ocr = 1 AND scanned_pages = '[]';
+    """,
+    # 8: move notes out of the warnings of files converted before 7.
+    notes.migrate,
 ]
 
 
@@ -255,8 +269,18 @@ class Database:
 
     def _migrate(self, db: sqlite3.Connection) -> None:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        for i, script in enumerate(MIGRATIONS[version:], start=version + 1):
-            db.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {i};\nCOMMIT;")
+        for i, step in enumerate(MIGRATIONS[version:], start=version + 1):
+            if callable(step):
+                db.execute("BEGIN")
+                try:
+                    step(db)
+                    db.execute(f"PRAGMA user_version = {i}")
+                except BaseException:
+                    db.execute("ROLLBACK")
+                    raise
+                db.execute("COMMIT")
+            else:
+                db.executescript(f"BEGIN;\n{step}\nPRAGMA user_version = {i};\nCOMMIT;")
 
     @contextmanager
     def connect(self):

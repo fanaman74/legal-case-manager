@@ -47,6 +47,7 @@ const paths = {
   spark: <><path d="M7 1.8l1.3 3.4 3.4 1.3-3.4 1.3L7 11.2 5.7 7.8 2.3 6.5l3.4-1.3z" /><path d="M12.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" /></>,
   gear: <><circle cx="8" cy="8" r="2.2" /><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" /></>,
   send: <path d="M14.5 1.5L7 9M14.5 1.5l-4.5 13-3-5.5-5.5-3z" />,
+  info: <><circle cx="8" cy="8" r="6.5" /><path d="M8 7.2v4M8 4.6v.1" /></>,
 } as const;
 
 export type IconName = keyof typeof paths;
@@ -113,9 +114,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
 });
 
-export function Link({ to, children, className }: { to: string; children: ReactNode; className?: string }) {
+export function Link({ to, children, className, title }: { to: string; children: ReactNode; className?: string; title?: string }) {
   return (
-    <a href={to} onClick={onLinkClick} className={className}>
+    <a href={to} onClick={onLinkClick} className={className} title={title}>
       {children}
     </a>
   );

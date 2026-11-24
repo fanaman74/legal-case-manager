@@ -4,6 +4,7 @@ import { Icon, Section } from "../ui";
 // Which kinds of background work exist, in the order shown.
 const KINDS: { id: string; label: string; idle: string }[] = [
   { id: "convert", label: "Converting files", idle: "Nothing waiting. New uploads are converted to Markdown here." },
+  { id: "ocr", label: "Reading scanned pages (OCR)", idle: "Nothing waiting. Scanned pages in PDFs are read here by themselves." },
   { id: "index", label: "Indexing for search", idle: "Nothing waiting. Converted files are indexed for search here." },
   { id: "pst", label: "Reading mailboxes", idle: "Nothing waiting. Uploaded PST files are read here." },
   { id: "export", label: "Exporting cases", idle: "Nothing waiting." },

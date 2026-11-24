@@ -222,7 +222,7 @@ def run_export(rt: Runtime, job: dict) -> None:
                     "sha256": f["sha256"], "status": f["status"], "tags": json.loads(f["tags"] or "[]"),
                     "added_at": f["added_at"], "added_by": f["added_by_name"], "title": f["title"], "document_date": f["doc_date"],
                     "page_count": f["page_count"], "ocr": bool(f["ocr"]), "converted_at": f["converted_at"],
-                    "markdown_sha256": f["markdown_sha256"], "warnings": json.loads(f["warnings"] or "[]"), "error": f["error"],
+                    "markdown_sha256": f["markdown_sha256"], "warnings": json.loads(f["warnings"] or "[]"), "notes": json.loads(f["notes"] or "[]"), "error": f["error"],
                     "attached_to": f["parent_id"], "near_duplicate_of": f["near_dup_of"],
                     "near_duplicate_similarity": round(f["near_dup_score"], 2) if f["near_dup_score"] is not None else None,
                     "original_in_zip": None, "markdown_in_zip": None,

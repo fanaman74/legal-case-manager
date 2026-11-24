@@ -6,7 +6,7 @@ import { useLoad } from "../hooks";
 import { href, onLinkClick } from "../router";
 import { fromDrop, fromInput } from "../upload";
 import { Button, CopyButton, Drawer, ErrorPanel, FormError, Icon, Link, Skeleton } from "../ui";
-import { FileStatusBadge, NearDuplicateBadge } from "./FileStatus";
+import { FileStatusBadge, NearDuplicateBadge, OCR_MISSING } from "./FileStatus";
 import { DropZone, UploadPanel, useUploader } from "./Uploader";
 
 const PAGE = 500;
@@ -126,7 +126,7 @@ export function FilesTab({ caseId, folder, canUpload, canEdit, onChanged }: { ca
                 <option value="">All statuses</option>
                 <option value="converted">Converted</option>
                 <option value="warnings">With warnings</option>
-                <option value="scanned">Scanned, needs OCR</option>
+                <option value="ocr">Scanned pages (OCR)</option>
                 <option value="near_duplicate">Near-duplicates</option>
                 <option value="failed">Failed</option>
                 <option value="queued">Waiting</option>
@@ -364,7 +364,7 @@ function FileDrawer({ caseId, file, canEdit, onClose, onChanged, onOpenOther }: 
   const save = (tags: string[]) => act(() => api.editFile(caseId, file.id, tags));
   const path = [file.folder, file.name].filter(Boolean).join("/");
   const converted = file.status === "converted" || file.status === "needs_ocr";
-  const canOcr = canEdit && file.type === "pdf" && file.scanned_pages.length > 0;
+  const canOcr = canEdit && file.type === "pdf" && file.ocr_state === "failed";
   return (
     <Drawer open onOpenChange={(o) => !o && onClose()} title={file.name}>
       <div className="drawer__section">
@@ -388,6 +388,18 @@ function FileDrawer({ caseId, file, canEdit, onClose, onChanged, onOpenOther }: 
           {file.status === "queued" && <span className="muted">Waiting to be converted to Markdown.</span>}
           {file.status === "converting" && <span className="muted">Being converted to Markdown now.</span>}
         </dd>
+        {file.ocr_state !== "" && (
+          <>
+            <dt>Scanned pages</dt>
+            <dd className="kv__stack">
+              {file.ocr_state === "waiting" && <span>Waiting to be read with OCR. The rest of the file can already be opened and searched.</span>}
+              {file.ocr_state === "running" && <span>Being read with OCR now. The rest of the file can already be opened and searched.</span>}
+              {file.ocr_state === "done" && <span>Read with OCR. Check names and figures against the original.</span>}
+              {file.ocr_state === "unavailable" && <span>{OCR_MISSING}</span>}
+              {file.ocr_state === "failed" && <span>{file.ocr_error || "OCR couldn't read the scanned pages."} The rest of the file is searchable.</span>}
+            </dd>
+          </>
+        )}
         {file.warnings.length > 0 && (
           <>
             <dt>Warnings</dt>
@@ -396,11 +408,19 @@ function FileDrawer({ caseId, file, canEdit, onClose, onChanged, onOpenOther }: 
             </dd>
           </>
         )}
+        {file.notes.length > 0 && (
+          <>
+            <dt>Notes</dt>
+            <dd>
+              <ul className="warn-list warn-list--note">{file.notes.map((w) => <li key={w}><Icon name="info" /> {w}</li>)}</ul>
+            </dd>
+          </>
+        )}
         {(file.status === "failed" || canOcr) && canEdit && (
           <>
             <dt><span className="sr-only">Actions</span></dt>
             <dd className="btn-row">
-              {canOcr && <Button size="sm" icon="ocr" busy={busy} onClick={() => void act(() => api.reconvert(caseId, file.id, true))}>Run OCR</Button>}
+              {canOcr && <Button size="sm" icon="ocr" busy={busy} onClick={() => void act(() => api.reconvert(caseId, file.id, true))}>Try OCR again</Button>}
               {file.status === "failed" && <Button size="sm" icon="refresh" busy={busy} onClick={() => void act(() => api.reconvert(caseId, file.id))}>Retry</Button>}
             </dd>
           </>
@@ -519,6 +539,11 @@ function pending(p: Progress | null): number {
   return (p.files.queued ?? 0) + (p.files.converting ?? 0);
 }
 
+/** Files whose scanned pages are queued for OCR or being read now. */
+function reading(p: Progress | null): number {
+  return p ? (p.ocr.waiting ?? 0) + (p.ocr.running ?? 0) : 0;
+}
+
 function useProgress(caseId: string, onChange: () => void) {
   const [data, setData] = useState<Progress | null>(null);
   const last = useRef("");
@@ -527,7 +552,7 @@ function useProgress(caseId: string, onChange: () => void) {
   const reload = useCallback(async () => {
     try {
       const p = await api.progress(caseId);
-      const key = JSON.stringify([p.files, p.warnings, p.scanned]);
+      const key = JSON.stringify([p.files, p.warnings, p.scanned, p.ocr, p.index]);
       if (last.current && key !== last.current) changed.current();
       last.current = key;
       setData(p);
@@ -535,7 +560,7 @@ function useProgress(caseId: string, onChange: () => void) {
       // the file list shows its own error
     }
   }, [caseId]);
-  const busy = pending(data) > 0;
+  const busy = pending(data) > 0 || reading(data) > 0 || (data?.index.waiting ?? 0) > 0;
   useEffect(() => {
     void reload();
     const t = setInterval(() => void reload(), busy ? 2500 : 15000);
@@ -558,7 +583,16 @@ function ProgressLine({ progress }: { progress: Progress }) {
       </div>
     );
   }
-  const problems = (progress.files.failed ?? 0) + (progress.files.needs_ocr ?? 0);
+  const ocr = reading(progress);
+  if (ocr > 0) {
+    return (
+      <div className="progress-line" role="status">
+        <Icon name="progress" />
+        <span className="progress-line__text">All {plural(total, "file")} converted. Reading scanned pages in {plural(ocr, "file")} with OCR; the rest of their text is already searchable.</span>
+      </div>
+    );
+  }
+  const problems = (progress.files.failed ?? 0) + (progress.ocr.failed ?? 0) + (progress.ocr.unavailable ?? 0);
   if (problems > 0) {
     return (
       <p className="next-line next-line--warn" role="status">
@@ -587,10 +621,12 @@ function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, o
   const total = progress?.total ?? 0;
   const waiting = pending(progress);
   const failed = progress?.files.failed ?? 0;
-  const scanned = progress?.scanned ?? 0;
+  const ocrFailed = progress?.ocr.failed ?? 0;
+  const ocrMissing = progress?.ocr.unavailable ?? 0;
+  const ocrReading = reading(progress);
   const warnings = progress?.warnings ?? 0;
   const near = progress?.near_duplicates ?? 0;
-  const review = failed + scanned + warnings;
+  const review = failed + ocrFailed + ocrMissing + warnings;
   const run = async (what: "ocr_scanned" | "retry_failed") => {
     setBusy(what);
     setError(null);
@@ -627,7 +663,8 @@ function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, o
           <Icon name={icon(s2)} />
           <div>
             <p className="next__label">Convert to Markdown</p>
-            <p className="hint">{s2 === "current" ? `${(total - waiting).toLocaleString()} of ${total.toLocaleString()} done. This runs by itself.` : s2 === "done" ? "Done." : "Starts by itself after upload."}</p>
+            <p className="hint">{s2 === "current" ? `${(total - waiting).toLocaleString()} of ${total.toLocaleString()} done. This runs by itself.` : s2 === "done" ? (ocrReading > 0 ? `Done. Reading scans in ${plural(ocrReading, "file")} with OCR, by itself.` : "Done.") : "Starts by itself after upload."}</p>
+            {total > 0 && <Link to={href({ page: "case", id: caseId, tab: "status", folder: "" })}>See each file's progress</Link>}
           </div>
         </li>
         <li className={step(s3)}>
@@ -643,10 +680,15 @@ function NextSteps({ caseId, progress, canUpload, canEdit, onUpload, onFilter, o
                     {canEdit && <Button size="sm" variant="quiet" busy={busy === "retry_failed"} onClick={() => void run("retry_failed")}>Retry all</Button>}
                   </li>
                 )}
-                {scanned > 0 && (
+                {ocrFailed > 0 && (
                   <li>
-                    <button className="linkish" onClick={() => onFilter("scanned")}>{plural(scanned, "scanned PDF")} need OCR</button>
-                    {canEdit && <Button size="sm" variant="quiet" busy={busy === "ocr_scanned"} onClick={() => void run("ocr_scanned")}>Run OCR on all</Button>}
+                    <button className="linkish" onClick={() => onFilter("ocr")}>OCR couldn't read {plural(ocrFailed, "file")}</button>
+                    {canEdit && <Button size="sm" variant="quiet" busy={busy === "ocr_scanned"} onClick={() => void run("ocr_scanned")}>Try again</Button>}
+                  </li>
+                )}
+                {ocrMissing > 0 && (
+                  <li title={OCR_MISSING}>
+                    <button className="linkish" onClick={() => onFilter("ocr")}>{plural(ocrMissing, "file")} with scans</button> wait for OCR to be installed
                   </li>
                 )}
                 {warnings > 0 && (

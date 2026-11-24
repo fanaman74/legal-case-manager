@@ -8,6 +8,7 @@ import { EmailTab } from "../components/EmailTab";
 import { ExportDialog } from "../components/ExportDialog";
 import { ReviewTab } from "../components/ReviewTab";
 import { SearchTab } from "../components/SearchTab";
+import { StatusTab } from "../components/StatusTab";
 import { useApp, useLoad, useTitle } from "../hooks";
 import { href, navigate, TABS, type CaseTab } from "../router";
 import { ActionMenu, Badge, Button, EmptyState, ErrorPanel, Field, FormError, Link, Modal, Skeleton, type MenuItem } from "../ui";
@@ -98,12 +99,15 @@ export function CasePage({ id, tab, folder, q, file }: { id: string; tab: CaseTa
         <Tabs.List className="tabs" aria-label="Case sections">
           {TABS.map((t) => (
             <Tabs.Trigger key={t} value={t} className="tabs__tab">
-              {{ files: "Files", search: "Search", ask: "Ask", review: "Review", email: "Email", details: "Details", people: "People", activity: "Activity" }[t]}
+              {{ files: "Files", status: "Status", search: "Search", ask: "Ask", review: "Review", email: "Email", details: "Details", people: "People", activity: "Activity" }[t]}
             </Tabs.Trigger>
           ))}
         </Tabs.List>
         <Tabs.Content value="files" className="tabs__panel">
           {tab === "files" && <FilesTab caseId={id} folder={folder} canUpload={perms.upload} canEdit={perms.edit} onChanged={() => void reloadCases()} />}
+        </Tabs.Content>
+        <Tabs.Content value="status" className="tabs__panel">
+          {tab === "status" && <StatusTab caseId={id} />}
         </Tabs.Content>
         <Tabs.Content value="search" className="tabs__panel">
           {tab === "search" && <SearchTab caseId={id} q={q} />}

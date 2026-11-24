@@ -12,15 +12,35 @@ export function FileStatusBadge({ file }: { file: CaseFile }) {
     case "failed":
       return <Badge tone="error" icon="error" title={file.error}>Failed</Badge>;
     case "needs_ocr":
-      return <Badge tone="warn" icon="warn" title="A scan with no text. Run OCR to read it.">Scanned: needs OCR</Badge>;
-    case "converted":
-      if (file.scanned_pages.length) return <Badge tone="warn" icon="warn" title={file.warnings.join(" ")}>Some pages need OCR</Badge>;
+    case "converted": {
+      const ocr = OcrBadge({ file });
+      if (ocr) return ocr;
+      if (file.status === "needs_ocr") return <Badge tone="warn" icon="warn" title="A scan with no text.">Scanned, no text</Badge>;
       if (file.warnings.length) return <Badge tone="warn" icon="warn" title={file.warnings.join(" ")}>Converted, {plural(file.warnings.length, "warning")}</Badge>;
-      return <Badge tone="ok" icon="ok">Converted</Badge>;
+      return <Badge tone="ok" icon="ok" title={file.notes.length ? file.notes.join(" ") : undefined}>Converted</Badge>;
+    }
     default:
       return <Badge tone="idle" icon="pending">{String(file.status)}</Badge>;
   }
 }
+
+/** Scanned pages are read with OCR by themselves; this says how far that has got. */
+function OcrBadge({ file }: { file: Pick<CaseFile, "ocr_state" | "ocr_error" | "scanned_pages"> }) {
+  switch (file.ocr_state) {
+    case "waiting":
+      return <Badge tone="progress" icon="pending" title="The rest of the file can already be opened and searched.">Scans waiting for OCR</Badge>;
+    case "running":
+      return <Badge tone="progress" icon="progress" title="The rest of the file can already be opened and searched.">Reading scans (OCR)</Badge>;
+    case "unavailable":
+      return <Badge tone="warn" icon="warn" title={OCR_MISSING}>Scans: OCR not installed</Badge>;
+    case "failed":
+      return <Badge tone="warn" icon="warn" title={file.ocr_error}>OCR couldn't read scans</Badge>;
+    default:
+      return null;
+  }
+}
+
+export const OCR_MISSING = "OCR isn't installed on this computer yet, so scanned pages can't be read. The Admin can install it from Components in the Control Center; scanned pages are then read by themselves.";
 
 /** Shown beside the status when the text is almost the same as an earlier file. */
 export function NearDuplicateBadge({ file }: { file: CaseFile }) {

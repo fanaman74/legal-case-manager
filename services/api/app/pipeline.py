@@ -1,17 +1,23 @@
 """What the worker does with a convert job: run the converter in a child
 process, then file its output (Markdown with front matter, page images,
-email attachments as new files in the case) and record the result."""
+email attachments as new files in the case) and record the result.
+
+Scanned pages are read with OCR by themselves: the first conversion skips
+them, so the rest of the file is searchable within seconds, and queues an
+"ocr" job that converts the file again with OCR in its own worker lane. The
+file stays usable while OCR runs; nobody has to press anything."""
 
 import hashlib
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
 import uuid
 from pathlib import Path
 
-from . import audit, jobs
+from . import audit, jobs, notes
 from .convert import CONVERTER_VERSION
 from .convert.markdown import front_matter
 from .runtime import Runtime
@@ -32,6 +38,45 @@ def _timeout(size: int, ocr: bool) -> int:
     return min((7200 if ocr else 1800) + size // 2**20 * 10, 6 * 3600)
 
 
+def ocr_available() -> bool:
+    """Whether Tesseract is installed (the launcher sets TESSERACT_CMD)."""
+    cmd = os.environ.get("TESSERACT_CMD") or "tesseract"
+    return shutil.which(cmd) is not None
+
+
+def wants_ocr(row) -> bool:
+    return row["source_type"] == "pdf" and row["status"] in ("converted", "needs_ocr") and (row["scanned_pages"] or "[]") != "[]"
+
+
+def queue_ocr(db, row, user: dict | None = None) -> str:
+    """Queue reading a file's scanned pages, or note that OCR isn't
+    installed yet (the worker tries again once it is). Returns the new
+    ocr_state."""
+    if not ocr_available():
+        state = "unavailable"
+    else:
+        jobs.enqueue(db, "ocr", row["case_id"], row["id"], options={"ocr": True}, user=user)
+        state = "waiting"
+    db.execute("UPDATE files SET ocr_state = ?, ocr_error = '' WHERE id = ?", (state, row["id"]))
+    return state
+
+
+def ocr_catch_up(rt: Runtime) -> int:
+    """Queue OCR for files whose scanned pages haven't been read: files
+    converted before OCR ran by itself, and files that waited for OCR to be
+    installed. Returns how many were queued."""
+    if not ocr_available():
+        return 0
+    with rt.db.transaction() as db:
+        rows = db.execute(
+            "SELECT * FROM files WHERE source_type = 'pdf' AND status IN ('converted', 'needs_ocr') AND scanned_pages != '[]'"
+            " AND ocr_state IN ('', 'unavailable') LIMIT 5000"
+        ).fetchall()
+        for row in rows:
+            queue_ocr(db, row)
+    return len(rows)
+
+
 def _path_of(row) -> str:
     return "/".join(p for p in (row["folder"], row["name"]) if p)
 
@@ -44,9 +89,22 @@ def run_convert(rt: Runtime, job: dict) -> None:
         with rt.db.transaction() as db:
             jobs.finish(db, job["id"])
         return
-    ocr = bool(job["options"].get("ocr"))
+    ocr = bool(job["options"].get("ocr")) or job["kind"] == "ocr"
+    # OCR of a file that is already converted runs in the background: the
+    # file keeps its Markdown and stays searchable until the OCR is done.
+    background = ocr and bool(row["converted_at"]) and row["status"] in ("converted", "needs_ocr")
+    if ocr and not ocr_available():
+        if background:
+            with rt.db.transaction() as db:
+                db.execute("UPDATE files SET ocr_state = 'unavailable' WHERE id = ?", (file_id,))
+                jobs.finish(db, job["id"])
+            return
+        ocr = False  # convert without OCR now; the worker reads the scans once OCR is installed
     with rt.db.transaction() as db:
-        db.execute("UPDATE files SET status = 'converting', error = '' WHERE id = ?", (file_id,))
+        if background:
+            db.execute("UPDATE files SET ocr_state = 'running', ocr_error = '' WHERE id = ?", (file_id,))
+        else:
+            db.execute("UPDATE files SET status = 'converting', error = '' WHERE id = ?", (file_id,))
 
     original = rt.storage.original(case_id, file_id, row["ext"])
     work = rt.storage.work_dir(case_id)
@@ -83,6 +141,12 @@ def run_convert(rt: Runtime, job: dict) -> None:
 
 def _failed(rt: Runtime, job: dict, row, message: str) -> None:
     with rt.db.transaction() as db:
+        if job["kind"] == "ocr" and row["converted_at"] and row["status"] in ("converted", "needs_ocr"):
+            # The earlier conversion stays; only the scanned pages are unread.
+            db.execute("UPDATE files SET ocr_state = 'failed', ocr_error = ? WHERE id = ?", (message, row["id"]))
+            jobs.fail(db, job["id"], message)
+            audit.record(db, action="file.ocr", user=None, username="worker", outcome="failed", case_id=row["case_id"], target=_path_of(row), detail=message[:300])
+            return
         db.execute("UPDATE files SET status = 'failed', error = ? WHERE id = ?", (message, row["id"]))
         jobs.fail(db, job["id"], message)
         audit.record(db, action="file.convert", user=None, username="worker", outcome="failed", case_id=row["case_id"], target=_path_of(row), detail=message[:300])
@@ -142,15 +206,21 @@ def _store(rt: Runtime, job: dict, row, work: Path, result: dict, ocr: bool) -> 
 
     scanned = result.get("scanned_pages") or []
     status = "needs_ocr" if scanned and result.get("page_count") and len(scanned) == result["page_count"] else "converted"
+    warnings, found_notes = notes.split(result.get("warnings") or [])
+    # After OCR, pages still unread mean OCR couldn't render them: say so
+    # rather than queue OCR again and again.
+    ocr_state = ("failed" if scanned else "done" if result.get("ocr") else "") if ocr else ""
+    ocr_error = "Some scanned pages couldn't be read with OCR. Open the original to read them." if ocr and scanned else ""
     meta["attachments"] = linked
     with rt.db.transaction() as db:
         if db.execute("SELECT 1 FROM files WHERE id = ?", (file_id,)).fetchone() is None:
             return  # the case was deleted while converting
         db.execute(
-            """UPDATE files SET status = ?, error = '', page_count = ?, ocr = ?, warnings = ?, scanned_pages = ?, meta = ?,
-               doc_date = ?, title = ?, converted_at = ?, markdown_sha256 = ?, previews = ? WHERE id = ?""",
-            (status, result.get("page_count"), int(bool(result.get("ocr"))), json.dumps(result.get("warnings") or []), json.dumps(scanned),
-             json.dumps(meta), result.get("doc_date"), result.get("title"), now, md_sha, result.get("previews") or 0, file_id),
+            """UPDATE files SET status = ?, error = '', page_count = ?, ocr = ?, warnings = ?, notes = ?, scanned_pages = ?, meta = ?,
+               doc_date = ?, title = ?, converted_at = ?, markdown_sha256 = ?, previews = ?, ocr_state = ?, ocr_error = ? WHERE id = ?""",
+            (status, result.get("page_count"), int(bool(result.get("ocr"))), json.dumps(warnings), json.dumps(found_notes), json.dumps(scanned),
+             json.dumps(meta), result.get("doc_date"), result.get("title"), now, md_sha, result.get("previews") or 0,
+             ocr_state, ocr_error, file_id),
         )
         jobs.finish(db, job["id"])
         detail = f"markdown sha256 {md_sha}; converter {CONVERTER_VERSION}"
@@ -160,6 +230,8 @@ def _store(rt: Runtime, job: dict, row, work: Path, result: dict, ocr: bool) -> 
             detail += "; OCR"
         audit.record(db, action="file.convert", user=None, username="worker", case_id=case_id, target=_path_of(row), detail=detail)
         after_convert(db, case_id, file_id, status)
+        if scanned and row["source_type"] == "pdf" and not ocr:
+            queue_ocr(db, db.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone())
 
 
 def after_convert(db, case_id: str, file_id: str, status: str) -> None:

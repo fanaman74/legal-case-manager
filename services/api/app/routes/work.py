@@ -83,6 +83,8 @@ def retry(job_id: int, request: Request, user: dict = Depends(accounts.admin_use
         db.execute("UPDATE jobs SET state = 'queued', error = '', attempts = 0, started_at = NULL, finished_at = NULL WHERE id = ?", (job_id,))
         if row["kind"] == "convert" and row["file_id"]:
             db.execute("UPDATE files SET status = 'queued', error = '' WHERE id = ?", (row["file_id"],))
+        if row["kind"] == "ocr" and row["file_id"]:
+            db.execute("UPDATE files SET ocr_state = 'waiting', ocr_error = '' WHERE id = ?", (row["file_id"],))
         if row["kind"] == "pst":
             db.execute("UPDATE mailboxes SET status = 'queued', error = '' WHERE id = ?", (json.loads(row["options"] or "{}").get("mailbox"),))
         audit.record(db, action="job.retry", user=user, case_id=row["case_id"], target=jobs.LABELS.get(row["kind"], row["kind"]), detail=f"job {job_id}", ip=accounts.client_ip(request))
