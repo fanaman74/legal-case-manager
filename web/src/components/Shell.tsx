@@ -4,7 +4,7 @@ import { api, type JobCounts } from "../api";
 import { roleLabel } from "../format";
 import { useApp } from "../hooks";
 import { href, navigate, onLinkClick, type Route } from "../router";
-import { Icon, type IconName } from "../ui";
+import { Icon, PageErrorBoundary, type IconName } from "../ui";
 
 /** The Control Center only opens on the host computer. */
 function controlCenterUrl(): string | null {
@@ -96,7 +96,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </div>
       </nav>
       <main id="main" className="content" tabIndex={-1}>
-        {children}
+        <PageErrorBoundary resetKey={href(route)}>{children}</PageErrorBoundary>
       </main>
     </div>
   );

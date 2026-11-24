@@ -62,6 +62,7 @@ def extra_status(rt: Runtime) -> dict:
 # Kinds of work and the function that does each job.
 HANDLERS: dict[str, Callable[[Runtime, dict], None]] = {
     "convert": pipeline.run_convert,
+    "ocr": pipeline.run_convert,
     "index": indexing.run_index,
     "dups": neardup.run_case,
     "pst": mailboxes.run_index,
@@ -77,8 +78,9 @@ def lanes(cfg: settings.Settings) -> list[tuple[str, ...]]:
     # time anyway, and each case's index has one writer.
     # Mailboxes have their own thread, so a large PST never holds up uploads.
     # A local AI model download is one long job, so it has its own thread too,
-    # and so has a case export.
-    return [("convert",)] * cfg.convert_workers + [("index", "dups"), ("pst_add", "pst"), ("model",), ("export",)]
+    # and so has a case export. OCR of a long scan takes minutes, so it has
+    # its own thread and new uploads are converted meanwhile.
+    return [("convert",)] * cfg.convert_workers + [("ocr",), ("index", "dups"), ("pst_add", "pst"), ("model",), ("export",)]
 
 
 def run_lane(rt: Runtime, kinds: tuple[str, ...], stop: threading.Event) -> None:
@@ -103,6 +105,8 @@ def run_lane(rt: Runtime, kinds: tuple[str, ...], stop: threading.Event) -> None
                         export.failed(db, job, "The export couldn't be finished. Try again; if it keeps failing, the Admin can check the worker's log in the Control Center.")
                     if job["kind"] == "pst":
                         db.execute("UPDATE mailboxes SET status = 'failed', error = ? WHERE id = ?", ("The worker couldn't read this mailbox. Retry it from the Jobs page; if it keeps failing, the Admin can check the worker's log in the Control Center.", job["options"].get("mailbox")))
+                    if job["kind"] == "ocr" and job["file_id"]:
+                        db.execute("UPDATE files SET ocr_state = 'failed', ocr_error = ? WHERE id = ?", ("The worker couldn't read the scanned pages. The rest of the file is still searchable; if it keeps failing, the Admin can check the worker's log in the Control Center.", job["file_id"]))
                     if job["kind"] == "convert" and job["file_id"]:
                         db.execute("UPDATE files SET status = 'failed', error = ? WHERE id = ?", ("The worker couldn't convert this file. Retry it; if it keeps failing, the Admin can check the worker's log in the Control Center.", job["file_id"]))
             except Exception:
@@ -146,6 +150,9 @@ def main() -> int:
                 queued = indexing.catch_up(rt)
                 if queued:
                     log.info("the local model is available: adding meaning search for %d files", queued)
+                queued = pipeline.ocr_catch_up(rt)
+                if queued:
+                    log.info("reading scanned pages with OCR for %d files", queued)
             if time.time() - last_tidy > 3600:
                 jobs.tidy(rt.db)
                 calls.tidy(rt)

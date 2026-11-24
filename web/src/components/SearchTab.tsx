@@ -24,7 +24,9 @@ export function SearchTab({ caseId, q }: { caseId: string; q: string }) {
   const input = useRef<HTMLInputElement>(null);
   const folders = useLoad(() => api.folders(caseId), [caseId]);
 
-  useEffect(() => setText(q), [q]);
+  useEffect(() => {
+    setText(q);
+  }, [q]);
   useEffect(() => {
     if (!q) {
       setResult(null);

@@ -8,7 +8,9 @@ export function DetailsTab({ c, canEdit, canRename, onSaved }: { c: Case; canEdi
   const [form, setForm] = useState({ name: c.name, reference: c.reference, client: c.client, description: c.description, notes: c.notes });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => setForm({ name: c.name, reference: c.reference, client: c.client, description: c.description, notes: c.notes }), [c]);
+  useEffect(() => {
+    setForm({ name: c.name, reference: c.reference, client: c.client, description: c.description, notes: c.notes });
+  }, [c]);
   const dirty = (Object.keys(form) as (keyof typeof form)[]).some((k) => form[k] !== c[k]);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
 

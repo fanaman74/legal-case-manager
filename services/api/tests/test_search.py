@@ -211,6 +211,37 @@ def test_keyword_search_works_before_the_model_is_ready(admin, case, rt, model):
     assert (status["indexed"], status["chunks"], status["problem"]) == (1, 1, "")
 
 
+def test_status_page_shows_each_files_progress(admin, case, rt, model, people):
+    model.up = False
+    admin.upload(case, "Letters/a.txt", txt("The shipment was late."))
+    admin.upload(case, "b.txt", txt("Payment is due in March."))
+    st = admin.get(f"/api/cases/{case}/status").json()
+    s = st["summary"]
+    assert (s["total"], s["stages"]["working"], s["markdown"]["working"]) == (2, 2, 2)
+    assert [i["jobs"] for i in st["items"]] == [{"convert": "queued"}, {"convert": "queued"}]
+    work(rt)
+    st = admin.get(f"/api/cases/{case}/status").json()
+    s = st["summary"]
+    # Converted and searchable by exact words; meaning search (embeddings) waits for the model.
+    assert s["markdown"]["done"] == 2 and s["keyword"]["done"] == 2 and s["meaning"]["waiting_model"] == 2
+    assert s["stages"] == {"attention": 0, "working": 2, "ready": 0}
+    assert st["items"][0]["index_state"] == "keyword_only" and st["model"]
+    model.up = True
+    indexing.catch_up(rt)
+    st = admin.get(f"/api/cases/{case}/status").json()
+    assert st["summary"]["meaning"]["working"] == 2  # queued for embeddings
+    work(rt)
+    st = admin.get(f"/api/cases/{case}/status").json()
+    s = st["summary"]
+    assert s["meaning"]["done"] == 2 and s["stages"]["ready"] == 2 and s["passages"] == 2
+    assert [i["name"] for i in st["items"]] == ["b.txt", "a.txt"]  # top level first, then folders
+    assert admin.get(f"/api/cases/{case}/status", params={"show": "attention"}).json()["items"] == []
+    assert len(admin.get(f"/api/cases/{case}/status", params={"show": "ready"}).json()["items"]) == 2
+    # Only people with access to the case can see it.
+    outsider = people("olu", "editor")
+    assert outsider.get(f"/api/cases/{case}/status").status_code == 404
+
+
 def test_converting_again_replaces_the_passages(admin, case, rt, model):
     f = admin.upload(case, "scan.pdf", samples.scanned_pdf_bytes()).json()["file"]
     work(rt)

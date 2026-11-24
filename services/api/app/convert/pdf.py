@@ -210,9 +210,9 @@ def convert(path: Path, opts: Options) -> Result:
 
     if scanned:
         if len(scanned) == len(pages):
-            warnings.append("This PDF is a scan with no text layer. Run OCR to read it.")
+            warnings.append("This PDF is a scan with no text layer. It is read with OCR by itself.")
         else:
-            warnings.append(f"Page{'s' if len(scanned) > 1 else ''} {page_list(scanned)} {'are' if len(scanned) > 1 else 'is a'} scanned image{'s' if len(scanned) > 1 else ''} with no text. Run OCR to read {'them' if len(scanned) > 1 else 'it'}.")
+            warnings.append(f"Page{'s' if len(scanned) > 1 else ''} {page_list(scanned)} {'are' if len(scanned) > 1 else 'is a'} scanned image{'s' if len(scanned) > 1 else ''} with no text. {'They are' if len(scanned) > 1 else 'It is'} read with OCR by itself.")
     ocred = [n for n, p in enumerate(pages, start=1) if p["ocr"] is not None]
     if ocred:
         warnings.append(f"Page{'s' if len(ocred) > 1 else ''} {page_list(ocred)} {'were' if len(ocred) > 1 else 'was'} read with OCR. Check names and figures against the original.")

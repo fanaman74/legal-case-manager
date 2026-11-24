@@ -99,25 +99,85 @@ def test_converter_crash_retried_then_failed(admin, case, rt, monkeypatch):
         assert db.execute("SELECT attempts FROM jobs WHERE file_id = ?", (f["id"],)).fetchone()[0] == pipeline.MAX_ATTEMPTS
 
 
-def test_scanned_pdf_offered_for_ocr(admin, case, rt):
+@pytest.fixture
+def no_ocr(monkeypatch):
+    """OCR not installed yet (a new computer, before the Control Center has installed it)."""
+    monkeypatch.setattr(pipeline, "ocr_available", lambda: False)
+
+
+def test_scanned_pdf_waits_for_ocr_to_be_installed(admin, case, rt, no_ocr, monkeypatch):
     f = admin.upload(case, "scan.pdf", samples.scanned_pdf_bytes()).json()["file"]
     work(rt)
     f = admin.get(f"/api/cases/{case}/files/{f['id']}").json()
-    assert f["status"] == "needs_ocr" and f["scanned_pages"] == [1]
-    assert admin.get(f"/api/cases/{case}/progress").json()["scanned"] == 1
+    assert f["status"] == "needs_ocr" and f["scanned_pages"] == [1] and f["ocr_state"] == "unavailable"
+    # The scanned-page message is a note: the file isn't flagged as having warnings.
+    assert f["warnings"] == [] and "scan with no text layer" in f["notes"][0]
+    p = admin.get(f"/api/cases/{case}/progress").json()
+    assert p["scanned"] == 1 and p["warnings"] == 0 and p["ocr"] == {"unavailable": 1}
+    assert pipeline.ocr_catch_up(rt) == 0
+    # Once OCR is installed the worker queues it by itself.
+    monkeypatch.setattr(pipeline, "ocr_available", lambda: True)
+    assert pipeline.ocr_catch_up(rt) == 1
+    assert admin.get(f"/api/cases/{case}/files/{f['id']}").json()["ocr_state"] == "waiting"
+    assert pipeline.ocr_catch_up(rt) == 0  # not queued twice
+    assert admin.get(f"/api/cases/{case}/progress").json()["jobs"]["ocr"]["queued"] == 1
 
 
 @needs_ocr
-def test_run_ocr_on_scanned_pdf(admin, case, rt):
+def test_scanned_pdf_is_read_with_ocr_by_itself(admin, case, rt):
+    f = admin.upload(case, "scan.pdf", samples.scanned_pdf_bytes()).json()["file"]
+    assert work(rt) == 1
+    f = admin.get(f"/api/cases/{case}/files/{f['id']}").json()
+    # The quick pass is done and the file is usable; OCR follows in its own lane.
+    assert f["status"] == "needs_ocr" and f["ocr_state"] == "waiting"
+    assert work(rt) == 0  # the convert lane doesn't take OCR jobs
+    assert work(rt, ("ocr",)) == 1
+    f = admin.get(f"/api/cases/{case}/files/{f['id']}").json()
+    assert f["status"] == "converted" and f["ocr"] and f["ocr_state"] == "done" and f["scanned_pages"] == []
+    assert f["warnings"] == [] and "read with OCR" in f["notes"][0]
+    assert "steel never arrived" in admin.get(f"/api/cases/{case}/files/{f['id']}/markdown").json()["body"]
+    assert work(rt, ("ocr",)) == 0  # nothing queued again
+
+
+@needs_ocr
+def test_run_ocr_again_keeps_the_file_usable(admin, case, rt, no_ocr, monkeypatch):
     f = admin.upload(case, "scan.pdf", samples.scanned_pdf_bytes()).json()["file"]
     work(rt)
+    monkeypatch.setattr(pipeline, "ocr_available", lambda: True)
     r = admin.post(f"/api/cases/{case}/files/{f['id']}/convert", json={"ocr": True})
-    assert r.status_code == 200 and r.json()["status"] == "queued"
-    work(rt)
+    assert r.status_code == 200 and (r.json()["status"], r.json()["ocr_state"]) == ("needs_ocr", "waiting")
+    work(rt, ("ocr",))
     f = admin.get(f"/api/cases/{case}/files/{f['id']}").json()
     assert f["status"] == "converted" and f["ocr"] and f["scanned_pages"] == []
-    assert "steel never arrived" in admin.get(f"/api/cases/{case}/files/{f['id']}/markdown").json()["body"]
     assert any(e["action"] == "file.ocr" for e in admin.get(f"/api/cases/{case}/activity").json()["items"])
+
+
+def test_failed_ocr_keeps_the_earlier_conversion(admin, case, rt, no_ocr, monkeypatch):
+    f = admin.upload(case, "scan.pdf", samples.scanned_pdf_bytes()).json()["file"]
+    work(rt)
+    monkeypatch.setattr(pipeline, "ocr_available", lambda: True)
+    pipeline.ocr_catch_up(rt)
+    # Tesseract reports an error on the page (the converter's result has an error).
+    monkeypatch.setattr(pipeline.subprocess, "run", _converter_says({"error": "OCR couldn't read a scanned page."}))
+    pipeline.run_convert(rt, jobs.claim(rt.db, ("ocr",)))
+    f = admin.get(f"/api/cases/{case}/files/{f['id']}").json()
+    assert (f["status"], f["ocr_state"], f["ocr_error"]) == ("needs_ocr", "failed", "OCR couldn't read a scanned page.")
+    assert f["converted_at"] and f["error"] == ""
+    assert pipeline.ocr_catch_up(rt) == 0  # a failure isn't retried over and over
+    status = admin.get(f"/api/cases/{case}/status").json()
+    assert status["summary"]["ocr"]["failed"] == 1 and status["items"][0]["stage"] == "attention"
+
+
+def _converter_says(result: dict):
+    import json as _json
+
+    def run(args, **kw):
+        (pipeline.Path(args[5]) / "result.json").write_text(_json.dumps(result))
+
+        class Done:
+            returncode, stderr = 0, b""
+        return Done()
+    return run
 
 
 def test_permissions(admin, case, rt, people, new_case):
@@ -168,3 +228,29 @@ def test_old_files_are_queued_by_the_upgrade(tmp_path):
     with database.connect() as c:
         assert c.execute("SELECT status FROM files").fetchone()[0] == "queued"
         assert tuple(c.execute("SELECT kind, file_id, state FROM jobs").fetchone()) == ("convert", "f", "queued")
+
+
+def test_upgrade_moves_notes_out_of_warnings(tmp_path):
+    """Files converted before notes existed: informational messages become
+    notes, and scanned PDFs are picked up for OCR by the worker."""
+    import json
+    import sqlite3
+
+    from app.db import MIGRATIONS, Database
+
+    path = tmp_path / "app.db"
+    db = sqlite3.connect(path)
+    for i, script in enumerate(MIGRATIONS[:6], start=1):
+        db.executescript(f"{script}\nPRAGMA user_version = {i};")
+    db.execute("INSERT INTO cases (id, name, created_at) VALUES ('c' , 'Case', 'now')")
+    msgs = ["This document has tracked changes. The Markdown shows the text with all changes accepted.", "Page 3 couldn't be read (ValueError)."]
+    db.execute("INSERT INTO files (id, case_id, name, ext, source_type, size, sha256, added_at, status, warnings) VALUES ('f', 'c', 'a.docx', '.docx', 'word', 1, 'x', 'now', 'converted', ?)", (json.dumps(msgs),))
+    db.execute("INSERT INTO files (id, case_id, name, ext, source_type, size, sha256, added_at, status, ocr) VALUES ('g', 'c', 'b.pdf', '.pdf', 'pdf', 1, 'y', 'now', 'converted', 1)")
+    db.commit()
+    db.close()
+    database = Database(path)
+    with database.connect() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
+        row = c.execute("SELECT warnings, notes FROM files WHERE id = 'f'").fetchone()
+        assert json.loads(row[0]) == msgs[1:] and json.loads(row[1]) == msgs[:1]
+        assert c.execute("SELECT ocr_state FROM files WHERE id = 'g'").fetchone()[0] == "done"

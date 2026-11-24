@@ -16,7 +16,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import access, accounts, audit, jobs, runtime
+from .. import access, accounts, audit, jobs, pipeline, runtime
 
 router = APIRouter(prefix="/api/cases/{case_id}")
 
@@ -79,7 +79,10 @@ def file_view(row: sqlite3.Row) -> dict:
         "page_count": row["page_count"],
         "ocr": bool(row["ocr"]),
         "warnings": json.loads(row["warnings"] or "[]"),
+        "notes": json.loads(row["notes"] or "[]"),
         "error": row["error"],
+        "ocr_state": row["ocr_state"],
+        "ocr_error": row["ocr_error"],
         "scanned_pages": json.loads(row["scanned_pages"] or "[]"),
         "doc_date": row["doc_date"],
         "title": row["title"],
@@ -215,6 +218,8 @@ def list_files(
         where.append("f.warnings != '[]'")
     elif status == "scanned":
         where.append("f.scanned_pages != '[]'")
+    elif status == "ocr":
+        where.append("f.ocr_state != ''")
     elif status == "near_duplicate":
         where.append("f.near_dup_of IS NOT NULL")
     elif status:
@@ -299,8 +304,13 @@ class Convert(BaseModel):
 
 
 def _queue_convert(db, user: dict, case_id: str, row, ocr: bool, ip: str) -> None:
-    jobs.enqueue(db, "convert", case_id, row["id"], options={"ocr": ocr}, user=user)
-    db.execute("UPDATE files SET status = 'queued', error = '' WHERE id = ?", (row["id"],))
+    if ocr and pipeline.wants_ocr(row):
+        # Read the scanned pages in the background; the file stays usable.
+        pipeline.queue_ocr(db, row, user=user)
+    else:
+        # A file read with OCR before is read with OCR again.
+        jobs.enqueue(db, "convert", case_id, row["id"], options={"ocr": ocr or bool(row["ocr"])}, user=user)
+        db.execute("UPDATE files SET status = 'queued', error = '' WHERE id = ?", (row["id"],))
     audit.record(db, action="file.ocr" if ocr else "file.reconvert", user=user, case_id=case_id, target="/".join(filter(None, (row["folder"], row["name"]))), ip=ip)
 
 
@@ -346,11 +356,106 @@ def progress(case_id: str, user: dict = Depends(accounts.current_user), rt: runt
         statuses = {r["status"]: r["n"] for r in db.execute("SELECT status, COUNT(*) AS n FROM files WHERE case_id = ? GROUP BY status", (case_id,))}
         warnings = db.execute("SELECT COUNT(*) FROM files WHERE case_id = ? AND warnings != '[]'", (case_id,)).fetchone()[0]
         scanned = db.execute("SELECT COUNT(*) FROM files WHERE case_id = ? AND scanned_pages != '[]'", (case_id,)).fetchone()[0]
+        ocr = {r["ocr_state"]: r["n"] for r in db.execute("SELECT ocr_state, COUNT(*) AS n FROM files WHERE case_id = ? AND ocr_state != '' GROUP BY ocr_state", (case_id,))}
         near = db.execute("SELECT COUNT(*) FROM files WHERE case_id = ? AND near_dup_of IS NOT NULL", (case_id,)).fetchone()[0]
         job_counts = jobs.counts(db, [case_id])
         index = {r["index_state"] or "waiting": r["n"] for r in db.execute(
             "SELECT index_state, COUNT(*) AS n FROM files WHERE case_id = ? AND status IN ('converted', 'needs_ocr') GROUP BY index_state", (case_id,))}
-    return {"files": statuses, "total": sum(statuses.values()), "warnings": warnings, "scanned": scanned, "near_duplicates": near, "jobs": job_counts, "index": index}
+    return {"files": statuses, "total": sum(statuses.values()), "warnings": warnings, "scanned": scanned, "ocr": ocr, "near_duplicates": near, "jobs": job_counts, "index": index}
+
+
+# ---------------------------------------------------------------------------
+# Processing status: where each file is in conversion, OCR and indexing.
+
+STAGES = ("all", "attention", "working", "ready")
+
+
+def _stage(row, pending: set[str]) -> str:
+    """ready: searchable by exact words and by meaning, nothing left to do.
+    working: something is queued or running, or waiting for the local model.
+    attention: something failed or is missing and won't fix itself."""
+    if row["status"] == "failed" or row["ocr_state"] == "failed" or row["index_state"] == "failed" or row["warnings"] != "[]":
+        return "attention"
+    if row["ocr_state"] == "unavailable":
+        return "attention"
+    if pending or row["status"] in ("queued", "converting") or row["ocr_state"] in ("waiting", "running") or row["index_state"] in ("", "keyword_only"):
+        return "working"
+    return "ready"
+
+
+@router.get("/status")
+def status(
+    case_id: str,
+    show: str = Query("all", pattern="^(all|attention|working|ready)$"),
+    limit: int = Query(500, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(accounts.current_user),
+    rt: runtime.Runtime = Depends(runtime.get),
+) -> dict:
+    """Every file's progress through conversion to Markdown, OCR of scanned
+    pages and the search index (exact words and meaning, i.e. embeddings),
+    with counts for the whole case."""
+    with rt.db.connect() as db:
+        access.visible_case(db, user, case_id)
+        rows = db.execute(
+            "SELECT id, name, folder, source_type, size, status, error, warnings, notes, scanned_pages, ocr, ocr_state, ocr_error,"
+            " index_state, passages, converted_at, indexed_at, page_count, near_dup_of FROM files WHERE case_id = ?"
+            " ORDER BY folder COLLATE NOCASE, name COLLATE NOCASE, id",
+            (case_id,),
+        ).fetchall()
+        pending: dict[str, dict[str, str]] = {}
+        for j in db.execute("SELECT file_id, kind, state FROM jobs WHERE case_id = ? AND file_id IS NOT NULL AND state IN ('queued', 'running')", (case_id,)):
+            pending.setdefault(j["file_id"], {})[j["kind"]] = j["state"]
+    summary = {
+        "total": len(rows),
+        "stages": {k: 0 for k in STAGES[1:]},
+        "markdown": {"done": 0, "working": 0, "failed": 0},
+        "ocr": {"needed": 0, "done": 0, "working": 0, "unavailable": 0, "failed": 0},
+        "keyword": {"done": 0, "working": 0},
+        "meaning": {"done": 0, "working": 0, "waiting_model": 0, "failed": 0},
+        "passages": 0,
+        "warnings": 0,
+    }
+    items = []
+    for r in rows:
+        jobs_for = pending.get(r["id"], {})
+        stage = _stage(r, set(jobs_for))
+        summary["stages"][stage] += 1
+        converted = r["status"] in ("converted", "needs_ocr")
+        m = summary["markdown"]
+        m["done" if converted else "failed" if r["status"] == "failed" else "working"] += 1
+        if r["ocr_state"]:
+            o = summary["ocr"]
+            o["needed"] += 1
+            o[{"done": "done", "unavailable": "unavailable", "failed": "failed"}.get(r["ocr_state"], "working")] += 1
+        if converted:
+            indexing = "index" in jobs_for or r["index_state"] == ""
+            summary["keyword"]["done" if r["index_state"] in ("indexed", "keyword_only") else "working"] += 1
+            meaning = summary["meaning"]
+            if r["index_state"] == "indexed" and not indexing:
+                meaning["done"] += 1
+            elif r["index_state"] == "keyword_only" and not indexing:
+                meaning["waiting_model"] += 1
+            elif r["index_state"] == "failed":
+                meaning["failed"] += 1
+            else:
+                meaning["working"] += 1
+            summary["passages"] += r["passages"] or 0
+        if r["warnings"] != "[]":
+            summary["warnings"] += 1
+        if show != "all" and stage != show:
+            continue
+        items.append({
+            "id": r["id"], "name": r["name"], "folder": r["folder"], "type": r["source_type"], "size": r["size"],
+            "stage": stage, "status": r["status"], "error": r["error"],
+            "warnings": json.loads(r["warnings"] or "[]"), "notes": json.loads(r["notes"] or "[]"),
+            "page_count": r["page_count"], "scanned_pages": len(json.loads(r["scanned_pages"] or "[]")),
+            "ocr": bool(r["ocr"]), "ocr_state": r["ocr_state"], "ocr_error": r["ocr_error"],
+            "index_state": r["index_state"], "passages": r["passages"], "near_duplicate": bool(r["near_dup_of"]),
+            "converted_at": r["converted_at"], "indexed_at": r["indexed_at"], "jobs": jobs_for,
+        })
+    return {"summary": summary, "model": rt.cfg.embed_model, "ocr_installed": pipeline.ocr_available(),
+            "items": items[offset:offset + limit], "matching": len(items)}
 
 
 @router.get("/files/{file_id}/markdown")

@@ -26,7 +26,9 @@ export function AskTab({ caseId }: { caseId: string }) {
     if (choices.data && !provider) setProvider(choices.data.defaults.ask);
   }, [choices.data, provider]);
   const thread = [...(past.data?.items ?? [])].reverse().filter((c) => !asked.some((a) => a.id === c.id)).concat(asked);
-  useEffect(() => end.current?.scrollIntoView({ block: "end" }), [thread.length, pending]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "end" });
+  }, [thread.length, pending]);
 
   if (choices.error) return <ErrorPanel message={choices.error} onRetry={() => void choices.reload()} />;
   if (!choices.data || past.loading && !past.data) return <Skeleton rows={4} />;

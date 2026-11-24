@@ -11,9 +11,9 @@ import sqlite3
 from . import audit
 from .db import Database
 
-KINDS = ("convert", "index", "dups", "pst", "pst_add", "export", "model")
+KINDS = ("convert", "ocr", "index", "dups", "pst", "pst_add", "export", "model")
 # How the status banner and Control Center name each kind of job.
-LABELS = {"convert": "Conversion", "index": "Indexing", "dups": "Finding near-duplicates", "pst": "Reading mailbox", "pst_add": "Adding emails", "export": "Export", "model": "Downloading AI model"}
+LABELS = {"convert": "Conversion", "ocr": "Reading scanned pages (OCR)", "index": "Indexing", "dups": "Finding near-duplicates", "pst": "Reading mailbox", "pst_add": "Adding emails", "export": "Export", "model": "Downloading AI model"}
 
 
 def enqueue(db: sqlite3.Connection, kind: str, case_id: str | None, file_id: str | None = None, options: dict | None = None, user: dict | None = None) -> int | None:
@@ -72,6 +72,7 @@ def progress(database: Database, job_id: int, done: int, total: int) -> None:
 def recover(database: Database) -> int:
     """Jobs left running by a worker that stopped go back in the queue."""
     with database.transaction() as db:
+        db.execute("UPDATE files SET ocr_state = 'waiting' WHERE ocr_state = 'running'")
         return db.execute("UPDATE jobs SET state = 'queued', started_at = NULL WHERE state = 'running'").rowcount
 
 

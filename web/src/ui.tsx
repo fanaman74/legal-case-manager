@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { forwardRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Component, forwardRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { onLinkClick } from "./router";
 
 // ---------------------------------------------------------------------------
@@ -47,6 +47,7 @@ const paths = {
   spark: <><path d="M7 1.8l1.3 3.4 3.4 1.3-3.4 1.3L7 11.2 5.7 7.8 2.3 6.5l3.4-1.3z" /><path d="M12.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" /></>,
   gear: <><circle cx="8" cy="8" r="2.2" /><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" /></>,
   send: <path d="M14.5 1.5L7 9M14.5 1.5l-4.5 13-3-5.5-5.5-3z" />,
+  info: <><circle cx="8" cy="8" r="6.5" /><path d="M8 7.2v4M8 4.6v.1" /></>,
 } as const;
 
 export type IconName = keyof typeof paths;
@@ -113,9 +114,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
 });
 
-export function Link({ to, children, className }: { to: string; children: ReactNode; className?: string }) {
+export function Link({ to, children, className, title }: { to: string; children: ReactNode; className?: string; title?: string }) {
   return (
-    <a href={to} onClick={onLinkClick} className={className}>
+    <a href={to} onClick={onLinkClick} className={className} title={title}>
       {children}
     </a>
   );
@@ -281,4 +282,39 @@ export function Field({ id, label, hint, children }: { id: string; label: string
       {hint && <p className="field__hint" id={`${id}-hint`}>{hint}</p>}
     </div>
   );
+}
+
+/** Keeps the rest of the app on screen when one page hits a bug: the page
+ * shows what went wrong and a way back, instead of a blank window. Reset it
+ * by changing its `resetKey` (the page address). */
+export class PageErrorBoundary extends Component<{ resetKey: string; children: ReactNode }, { error: Error | null; key: string }> {
+  state = { error: null as Error | null, key: this.props.resetKey };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  static getDerivedStateFromProps(props: { resetKey: string }, state: { error: Error | null; key: string }) {
+    return props.resetKey !== state.key ? { error: null, key: props.resetKey } : null;
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("page error", error);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="problem" role="alert">
+        <Icon name="error" />
+        <div className="problem__body">
+          <p className="problem__what">Something went wrong on this page, so it stopped. Nothing was lost: your files and answers are saved.</p>
+          <p className="hint mono">{this.state.error.message}</p>
+          <div className="problem__actions">
+            <Button size="sm" onClick={() => location.reload()}>Reload the page</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 }

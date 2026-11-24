@@ -70,7 +70,7 @@ def test_pdf_scan_is_flagged_not_read_until_asked(tmp_path):
     r = run(tmp_path, "scan.pdf", samples.scanned_pdf_bytes())
     assert r.scanned_pages == [1]
     assert not r.ocr
-    assert "Run OCR" in r.warnings[0]
+    assert "read with OCR by itself" in r.warnings[0]
 
 
 @needs_ocr
